@@ -1,0 +1,16 @@
+# 依赖 / 生成物
+node_modules/
+dist/
+build/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# 日志 / 临时
+*.log
+*.tmp
+*~
