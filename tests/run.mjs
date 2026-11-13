@@ -314,7 +314,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.5 版本号', window.GenerationGuardian?.version === '1.3.5');
+    ok('调试入口暴露了 1.3.6 版本号', window.GenerationGuardian?.version === '1.3.6');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -507,7 +507,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.5');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.6');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -1175,6 +1175,128 @@ async function scenarioUnloadBeforeForeignReload() {
  * 入口
  * ------------------------------------------------------------------ */
 
+async function scenarioQuietFinish() {
+    console.log('\n[22] 正常写完就安静：不弹卡片、不弹提示');
+    captureConsole();
+    storage.clear();
+    window.__ggRecheckDelays = [40, 40, 40, 40];
+
+    // ---- A. 正常收尾，但我们故意让 chat 里没有这条（模拟「酒馆写晚半拍」）
+    extensionSettingsStub['generation-guardian'] = { enabled: true, autoRestore: true, quiet: true };
+    const chat = makeChat();
+    const ctx = createWorld({ chat, chatId: 'QuietChat' });
+    const toasts = [];
+    window.toastr = {
+        info: (m) => toasts.push(['info', m]),
+        success: (m) => toasts.push(['success', m]),
+        warning: (m) => toasts.push(['warning', m]),
+        error: (m) => toasts.push(['error', m]),
+    };
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '月光落在他肩上，他没有回头。');
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
+    await sleep(260);
+
+    const snaps = readSnapshots();
+    eq('正常结束的草稿留作备份', snaps.length, 1);
+    ok('标了「正常结束」，不会被当成未完成', snaps[0].endedCleanly === true, JSON.stringify(snaps[0]?.endedCleanly));
+    eq('安静模式下一条提示都不弹', toasts.length, 0);
+    ok('卡片也不弹', !panelVisible());
+
+    // ---- B. 同聊天再扫一次：备份草稿不许冒充「未完成的回复」
+    chat.push({ name: '沈砚', is_user: false, mes: '月光落在他肩上，他没有回头。', send_date: 'x', swipes: [], swipe_id: 0 });
+    await window.GenerationGuardian.scan();
+    ok('刷新回来也不会弹「检测到未完成的回复」', !panelVisible());
+
+    // ---- C. 对照组：真被打断（stopped）才该出声
+    extensionSettingsStub['generation-guardian'] = { enabled: true, autoRestore: true, quiet: true };
+    const chatB = makeChat();
+    const ctxB = createWorld({ chat: chatB, chatId: 'LoudChat' });
+    const toastsB = [];
+    window.toastr = {
+        info: (m) => toastsB.push(['info', m]),
+        success: (m) => toastsB.push(['success', m]),
+        warning: (m) => toastsB.push(['warning', m]),
+        error: (m) => toastsB.push(['error', m]),
+    };
+    await bootExtension();
+    await signalReady(ctxB);
+    await ctxB.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctxB.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '烛火晃了一下，他抬眼。');
+    await ctxB.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});
+    // 自动补回（autoRestore 开着）会在稍后把草稿写进聊天并把它清掉，
+    // 所以「有没有标成正常结束」要在补回之前看
+    const rightAfter = readSnapshots();
+    ok('被打断的草稿不标「正常结束」', rightAfter.length === 1 && rightAfter[0].endedCleanly === false,
+        JSON.stringify(rightAfter.map((s) => ({ k: s.chatKey, n: s.text.length, e: s.endedCleanly }))));
+    await sleep(260);
+    ok('真被打断的时候还是会吭一声', toastsB.length >= 1, JSON.stringify(toastsB));
+    ok('补回成功之后草稿就不再重复占位', readSnapshots().length === 0,
+        JSON.stringify(readSnapshots().map((s) => s.chatKey)));
+
+    delete window.__ggRecheckDelays;
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+}
+
+async function scenarioHugeDraft() {
+    console.log('\n[23] 一万五千字的一轮被打断，一字不差留住并接回');
+    captureConsole();
+    storage.clear();
+    delete window.__ggRecheckDelays;
+    extensionSettingsStub['generation-guardian'] = { enabled: true, autoRestore: false };
+
+    const chunk = '他把袖子挽到小臂，火光顺着指节往上爬，谁也没有先开口，只听见窗外风把雪吹成一条线。';
+    let full = '';
+    while (full.length < 15000) {
+        full += chunk;
+    }
+    const big = full.slice(0, 15000);
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat, chatId: 'HugeChat' });
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    // 按真实节奏分批吐字（每批都是「累计文本」，跟酒馆一致）
+    for (let cut = 1500; cut <= big.length; cut += 1500) {
+        await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, big.slice(0, cut));
+    }
+    ok('flush 间隔还没到，这时候存储是空的（正常节奏）', readSnapshots().length === 0);
+
+    // 还没写完就被打断（别的扩展刷新 → beforeunload）
+    window.dispatchEvent(new window.Event('beforeunload'));
+    const saved = readSnapshots();
+    eq('长草稿在存储里', saved.length, 1);
+    eq('字数一个不少', saved[0].text.length, big.length);
+    ok('内容逐字一致，没有中间省略', saved[0].text === big);
+    ok('没被标成截断', saved[0].truncated === false, String(saved[0].truncated));
+
+    // 模拟刷新回来（同一个聊天），点「接回」
+    const ctx2 = createWorld({ chat, chatId: 'HugeChat' });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(800);
+    ok('恢复卡片出现了', panelVisible());
+    const before = chat.length;
+    document.getElementById('gg-btn-recover').click();
+    await sleep(200);
+
+    eq('聊天里多了一条', chat.length, before + 1);
+    const landed = chat[chat.length - 1];
+    ok('接回的是 AI 侧', Boolean(landed) && landed.is_user === false);
+    eq('接回来的字数一样多', String(landed.mes || '').length, big.length);
+    ok('接回来的内容逐字一致', String(landed.mes || '') === big);
+    eq('接回后不再留同一份草稿', readSnapshots().length, 0);
+
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1200,6 +1322,8 @@ async function main() {
     await scenarioAutoRestore();
     await scenarioReloadShield();
     await scenarioUnloadBeforeForeignReload();
+    await scenarioQuietFinish();
+    await scenarioHugeDraft();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.5';
+const VERSION = '1.3.6';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -41,7 +41,12 @@ const THEMES = {
 const DEFAULT_THEME = 'trianon';
 const TAIL_HEAD_LEN = 60;
 // 单条草稿上限，防 localStorage 配额被打满后连新草稿都写不进去
+// （1 亿字符纯粹是「防呆」，正常一轮两万字都摸不到它）
 const MAX_DRAFT_CHARS = 1000000;
+// 所有草稿加起来的总字数预算。中文在 localStorage 里按 UTF-16 存，
+// 120 万字 ≈ 2.4MB，留一半余量给酒馆自己的设置和聊天缓存，别去顶 5MB 配额。
+// 超了就按「谁最旧谁先走」，但最新那条永远留下。
+const MAX_TOTAL_CHARS = 1200000;
 // 超过这么久没有任何新 token，就当这条回复卡住了，先把草稿落盘并提示
 const STALL_WATCHDOG_MS = 45000;
 
@@ -75,6 +80,8 @@ const DEFAULT_SETTINGS = {
     keepDays: 3,
     // 多少秒没有新 token 就提示「像卡住了」；0 表示关闭
     stallSeconds: STALL_WATCHDOG_MS / 1000,
+    // 安静模式：正常生成完就什么提示都别弹，只有真被打断才出声
+    quiet: true,
 };
 
 /* ------------------------------------------------------------------ *
@@ -395,12 +402,23 @@ function writeAll(list) {
         .slice()
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
         .slice(0, maxSnapshots());
+    // 总字数预算：先按时间排，再从最旧的开始丢，最新那条（也就是正在写的那条）无条件保留。
+    // 这样一轮一万两千字也稳：12000 字占 24KB，8 条全满也才 192KB。
+    let total = 0;
+    const budgeted = [];
+    for (const snapshot of trimmed) {
+        const length = String(snapshot.text || '').length;
+        if (!budgeted.length || total + length <= MAX_TOTAL_CHARS) {
+            budgeted.push(snapshot);
+            total += length;
+        }
+    }
     try {
-        localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+        localStorage.setItem(STORE_KEY, JSON.stringify(budgeted));
         storageFailed = false;
     } catch (error) {
         // 配额写满时逐条驱逐旧草稿重试，保证「当前这条」一定写得进去
-        const evicted = trimmed.slice();
+        const evicted = budgeted.slice();
         let ok = false;
         while (evicted.length > 1) {
             evicted.pop();
@@ -567,10 +585,13 @@ function armStallWatch() {
         // 把状态解开，否则会一直拦刷新和扩展按钮，反倒影响正常使用。
         if (Date.now() - Number(buffer.updatedAt || 0) > GENERATION_STALE_MS) {
             releaseGeneration();
-            toast(`这条生成已经没动静了，已解除「生成中」状态，草稿已保住 ${length} 字`, 'warning');
+            if (!settings().quiet) {
+                toast(`这条生成已经没动静了，已解除「生成中」状态，草稿已保住 ${length} 字`, 'warning');
+            }
             return;
         }
-        if (length) {
+        // 只是「慢」、不是「死」：安静模式下完全不出声，写长段落时别打扰她
+        if (length && !settings().quiet) {
             toast(`这条回复好像卡住了，已保住 ${length} 字草稿`, 'warning');
         }
         armStallWatch();
@@ -690,27 +711,76 @@ function onGenerationFinished(reason) {
     }
 
     // 正常结束时内容已经完整写进聊天了，不需要留草稿。
-    // 这里判定一律保守：拿不准就留着，交给 500ms 后的 scan 再复核一次。
+    // 这里判定一律保守：拿不准就留着，交给后面的复核处理。
     if (chatDraftLanded(snapshot)) {
         removeSnapshot(snapshot.id);
         return;
     }
 
+    // 酒馆把这条消息塞进 ctx.chat 往往比 GENERATION_ENDED 晚半拍（真机实测过），
+    // 所以这里不当场喊「没写进聊天」——只先记下来，隔几秒复核几次。
+    // ended = 酒馆自己正常收尾，草稿只当备份，绝不出卡片、绝不弹提示。
+    snapshot.endedCleanly = reason === 'ended';
     snapshot.updatedAt = Date.now();
     upsertSnapshot(snapshot);
+    scheduleLandedRecheck(snapshot, reason);
+}
 
-    if (reason === 'stopped') {
-        toast(`生成被中断，已保住 ${text.length} 字草稿（刷新后可以接着续写）`, 'warning');
-    } else {
-        toast(`生成结束时内容没写进聊天，已保住 ${text.length} 字草稿`, 'warning');
+/**
+ * 生成结束后隔几秒复核「这条其实已经写进聊天了」。
+ * 正常结束（endedCleanly）的草稿哪怕真没落地也只留在面板里当备份，不打扰她；
+ * 只有「被打断 / 被停止」才 toast + 弹卡片。
+ */
+const LANDED_RECHECK_DELAYS = [1200, 1500, 2000, 3000];
+
+function recheckDelays() {
+    // 测试里可以把这几档压短，真机上永远是上面那组真实间隔
+    const custom = globalThis.__ggRecheckDelays;
+    return Array.isArray(custom) && custom.length ? custom : LANDED_RECHECK_DELAYS;
+}
+
+function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
+    const wait = recheckDelays()[attempt];
+    if (!wait) {
+        settleFinishedSnapshot(snapshot, reason);
+        return;
     }
+    setTimeout(() => {
+        try {
+            if (chatDraftLanded(snapshot)) {
+                removeSnapshot(snapshot.id);
+                return;
+            }
+            scheduleLandedRecheck(snapshot, reason, attempt + 1);
+        } catch (error) {
+            console.warn(TAG, error);
+        }
+    }, wait);
+}
 
-    // 如果内容确实没进聊天（比如断连），当场就给出恢复入口，不用等刷新
+function settleFinishedSnapshot(snapshot, reason) {
+    if (!readAll().some((item) => item.id === snapshot.id)) {
+        return;
+    }
+    const text = String(snapshot.text || '');
+    if (!text.trim()) {
+        removeSnapshot(snapshot.id);
+        return;
+    }
+    // 正常收尾的：草稿留作备份（面板里能自己复制），一声不响
+    if (snapshot.endedCleanly) {
+        if (!settings().quiet) {
+            toast(`回复已完整写进聊天，草稿留作备份（${text.length} 字）`, 'info');
+        }
+        return;
+    }
+    // 真被打断：这时候出声才不算打扰
+    toast(`生成被中断，已保住 ${text.length} 字草稿（刷新后可以接着续写）`, 'warning');
     setTimeout(() => {
         if (!pendingSnapshot) {
             scanForRecoverySafe({ countdown: false });
         }
-    }, 500);
+    }, 300);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1165,7 +1235,10 @@ async function scanForRecovery() {
         }
     }
 
+    // 正常收尾留下的备份草稿不参与恢复：它对应的那条早就写进聊天了，
+    // 再弹「检测到未完成的回复」只会让人莫名其妙。
     const candidates = readAll().filter((snapshot) => snapshot.chatKey === key
+        && !snapshot.endedCleanly
         && matchesAnchor(snapshot));
 
     if (!candidates.length) {
@@ -1491,6 +1564,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
 
@@ -1722,6 +1796,7 @@ function mountSettings(retry = 0) {
     el('gg-set-block').checked = Boolean(s.blockReload);
     el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
     el('gg-set-badge').checked = Boolean(s.showBadge);
+    el('gg-set-quiet').checked = s.quiet !== false;
     el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-autorestore').checked = Boolean(s.autoRestore);
     el('gg-set-prompt').value = resumePromptText();
@@ -1809,6 +1884,10 @@ function mountSettings(retry = 0) {
         s.blockExtensionOps = Boolean(event.target.checked);
         persistSettings();
     });
+    el('gg-set-quiet').addEventListener('change', (event) => {
+        s.quiet = Boolean(event.target.checked);
+        persistSettings();
+    });
     el('gg-set-badge').addEventListener('change', (event) => {
         s.showBadge = Boolean(event.target.checked);
         if (!s.showBadge) {
@@ -1888,7 +1967,9 @@ function refreshSnapList() {
         title.textContent = `${snapshot.charName || '未知角色'} · ${fmtTime(snapshot.startedAt)}`;
         const sub = document.createElement('div');
         sub.className = 'gg-snap-sub';
-        sub.textContent = `${typeLabel(snapshot.type)} · ${snapshot.text.length} 字`;
+        sub.textContent = snapshot.endedCleanly
+            ? `备份 · 这一轮已正常写完 · ${snapshot.text.length} 字`
+            : `${typeLabel(snapshot.type)} · ${snapshot.text.length} 字`;
         info.append(title, sub);
 
         const copyBtn = document.createElement('button');
