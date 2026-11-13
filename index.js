@@ -182,18 +182,35 @@ function tailSignature(chatLen) {
 
 function hasTextSavedInChat(snapshot) {
     const chat = getContext().chat || [];
-    const tail = String(snapshot.text || '').slice(-40).trim();
-    if (!tail || !chat.length) {
+    const text = String(snapshot.text || '').trim();
+    if (!text || !chat.length) {
         return false;
     }
-    const floor = Math.max(0, chat.length - 3);
-    for (let i = chat.length - 1; i >= floor; i--) {
-        const mes = chat[i]?.mes || '';
-        if (mes.includes(tail)) {
-            return true;
+    // 只看最后一条角色消息，避免误判；用中段探针，规避流式结束时补全星号/引号造成的尾部差异
+    let lastChar = null;
+    for (let i = chat.length - 1; i >= 0; i--) {
+        if (!chat[i].is_user && !chat[i].is_system) {
+            lastChar = chat[i];
+            break;
         }
     }
-    return false;
+    const mes = String(lastChar?.mes || '');
+    if (!mes) {
+        return false;
+    }
+    const probes = [];
+    if (text.length > 120) {
+        const start = Math.floor(text.length * 0.55);
+        probes.push(text.slice(start, start + 40));
+    }
+    if (text.length > 60) {
+        probes.push(text.slice(-40));
+    }
+    probes.push(text.slice(0, 30));
+    return probes
+        .map((probe) => probe.trim())
+        .filter((probe) => probe.length >= 15)
+        .some((probe) => mes.includes(probe));
 }
 
 /* ------------------------------------------------------------------ *
@@ -382,6 +399,13 @@ function onGenerationFinished(reason) {
     } else {
         toast(`生成结束时内容没写进聊天，已保住 ${text.length} 字草稿`, 'warning');
     }
+
+    // 如果内容确实没进聊天（比如断连），当场就给出恢复入口，不用等刷新
+    setTimeout(() => {
+        if (!pendingSnapshot) {
+            scanForRecoverySafe({ countdown: false });
+        }
+    }, 500);
 }
 
 /* ------------------------------------------------------------------ *
@@ -470,6 +494,8 @@ function ensureUI() {
             return;
         }
         putToTextarea(pendingSnapshot.text);
+        removeSnapshot(pendingSnapshot.id);
+        pendingSnapshot = null;
         stopCountdown();
         hidePanel();
         toast('草稿已放进输入框，可以自己改完再发', 'info');
@@ -595,7 +621,7 @@ function matchesAnchor(snapshot) {
     return Boolean(extra) && !extra.is_user && String(extra.mes || '').trim().length === 0;
 }
 
-function scanForRecovery() {
+function scanForRecovery({ countdown = true } = {}) {
     ensureUI();
     const key = currentChatKey();
     const candidates = readAll().filter((snapshot) => snapshot.chatKey === key
@@ -612,7 +638,11 @@ function scanForRecovery() {
     candidates.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
     pendingSnapshot = candidates[0];
     showPanel(pendingSnapshot);
-    startCountdown();
+    if (countdown) {
+        startCountdown();
+    } else {
+        setFoot('可以点「恢复并续写」接着往下写');
+    }
 }
 
 function updateMessageInDom(ctx, index, message) {
@@ -652,11 +682,33 @@ function triggerContinue() {
     toast('请手动点一下「继续 / Continue」按钮', 'warning');
 }
 
+let resuming = false;
+
 async function resumeSnapshot(snapshot, { auto = false } = {}) {
     if (!snapshot) {
         return;
     }
     stopCountdown();
+
+    // 幂等保护：双击按钮 / 多个倒计时同时到点 / 恢复过程中再次触发，都只执行一次
+    if (resuming) {
+        return;
+    }
+    if (!readAll().some((item) => item.id === snapshot.id)) {
+        pendingSnapshot = null;
+        hidePanel();
+        return;
+    }
+    resuming = true;
+
+    try {
+        await doResume(snapshot, auto);
+    } finally {
+        resuming = false;
+    }
+}
+
+async function doResume(snapshot, auto) {
     hidePanel();
 
     const ctx = getContext();
@@ -876,9 +928,9 @@ function refreshSnapList() {
 
 let initialized = false;
 
-function scanForRecoverySafe() {
+function scanForRecoverySafe(options = {}) {
     try {
-        scanForRecovery();
+        scanForRecovery(options);
     } catch (error) {
         console.warn(TAG, 'scan failed', error);
     }

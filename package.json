@@ -1,0 +1,13 @@
+{
+    "name": "st-generation-guardian",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "SillyTavern extension: save streamed drafts and resume generation after a reload.",
+    "scripts": {
+        "test": "node tests/run.mjs"
+    },
+    "devDependencies": {
+        "jsdom": "^24.1.3"
+    }
+}

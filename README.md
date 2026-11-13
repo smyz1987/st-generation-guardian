@@ -116,6 +116,7 @@ git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardi
 | 恢复校验 | 聊天长度 + 锚点指纹双重校验，避免串到别的聊天或已经发过新消息的情况 |
 | 写回聊天 | `chat.push()` + `addOneMessage()`，然后 `saveChat()` |
 | 续写 | `generate('continue')`，ST 会用最后一条消息作为 prefill 追加 |
+| 幂等 | 恢复过程中加锁 + 二次校验草稿是否还存在，双击按钮不会插两条 |
 | 调试 | 控制台里 `GenerationGuardian.snapshots()` / `.clear()` / `.copy()` |
 
 关键文件：
@@ -124,7 +125,21 @@ git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardi
 manifest.json   扩展清单（auto_update: false）
 index.js        全部逻辑
 style.css       样式，含手机端断点
+tests/          本地测试沙盒
 ```
+
+### 跑测试
+
+`tests/run.mjs` 用 jsdom 造了一个假的酒馆窗口，把扩展源码复制进去后按真实相对路径 import，然后跑 8 个场景：
+
+```bash
+npm install
+npm test
+```
+
+覆盖：流式中断→重载→恢复→续写、「继续生成」类型中断恢复回原消息、「换一条」只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、聊天 A 的草稿不会出现在聊天 B、设置面板与草稿清单、倒计时自动续写。
+
+当前：**54 项断言全通过**。
 
 ---
 
@@ -167,7 +182,8 @@ git push origin v1.0.0
 
 - 关闭流式输出时无法保存中间内容（没有中间内容）。
 - 「换一条 / swipe」和「替我说话 / impersonate」这两类生成无法自动续写，只能把草稿放进输入框。
-- 草稿是本机浏览器本地的，换设备 / 清缓存会丢。
+- 草稿是本机浏览器本地的：PC 上的草稿不会同步到手机，手机上的也不会同步到 PC（换设备 / 清缓存会丢）。
+- 手机端部分浏览器（尤其 iOS Safari）对生成中的刷新确认框支持不佳，可能不弹窗直接刷新 —— 这种情况靠草稿恢复兜住。
 - SillyTavern 内部直接调用 `location.reload()` 的操作（启用/禁用扩展等）拦不住，只能靠草稿恢复。
 - 依赖 `STREAM_TOKEN_RECEIVED` 事件，低于 1.12 的旧版本可能没有。
 
