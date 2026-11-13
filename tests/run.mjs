@@ -491,7 +491,17 @@ async function scenarioSettingsPanel() {
 
     const host = document.getElementById('extensions_settings2');
     ok('设置面板挂到了扩展设置区', Boolean(host.querySelector('#gg-settings')));
+    ok('是酒馆标准的可折叠抽屉条目', Boolean(host.querySelector('#gg-settings .inline-drawer-toggle')) && Boolean(host.querySelector('#gg-settings .inline-drawer-content')));
+    ok('抽屉标题就是扩展名', host.querySelector('#gg-settings .inline-drawer-header b').textContent.includes('Generation Guardian'));
     ok('有启用开关', Boolean(document.getElementById('gg-set-enabled')));
+    ok('有「拦截刷新」开关', Boolean(document.getElementById('gg-set-block')));
+    ok('有「拦住会刷新的扩展操作」开关', Boolean(document.getElementById('gg-set-ops')));
+    ok('有「显示徽标」开关', Boolean(document.getElementById('gg-set-badge')));
+    ok('有「续写直接发送」开关', Boolean(document.getElementById('gg-set-autosend')));
+    ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
+    ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
+    ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.2.2');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);

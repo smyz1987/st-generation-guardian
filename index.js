@@ -21,10 +21,10 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
+const VERSION = '1.2.2';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
-const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const FLUSH_INTERVAL_MS = 800;
 const TAIL_HEAD_LEN = 60;
 // 单条草稿上限，防 localStorage 配额被打满后连新草稿都写不进去
@@ -46,8 +46,18 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     blockReload: true,
     resumePrompt: DEFAULT_RESUME_PROMPT,
+    // 生成中是否同时拦住「启用 / 禁用 / 更新 / 删除 / 清理」这类会 location.reload() 的扩展操作
+    blockExtensionOps: true,
+    // 生成中是否显示「已保存 N 字」的浮动徽标
+    showBadge: true,
     // 点「续写」后是否立刻替你发出去；关掉就只把指令填进输入框，自己改完按发送
     autoSend: true,
+    // 最多保留几条草稿
+    maxSnapshots: MAX_SNAPSHOTS,
+    // 草稿保留几天
+    keepDays: 3,
+    // 多少秒没有新 token 就提示「像卡住了」；0 表示关闭
+    stallSeconds: STALL_WATCHDOG_MS / 1000,
 };
 
 /* ------------------------------------------------------------------ *
@@ -63,6 +73,31 @@ function settings() {
         if (s[key] === undefined) s[key] = value;
     }
     return s;
+}
+
+function clampNumber(value, min, max, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function maxSnapshots() {
+    return clampNumber(settings().maxSnapshots, 1, 50, MAX_SNAPSHOTS);
+}
+
+function keepDays() {
+    return clampNumber(settings().keepDays, 1, 30, 3);
+}
+
+function keepDaysMs() {
+    return keepDays() * 24 * 60 * 60 * 1000;
+}
+
+/** 卡住判定时间（毫秒），0 表示关掉这个提示 */
+function stallMs() {
+    return clampNumber(settings().stallSeconds, 0, 600, STALL_WATCHDOG_MS / 1000) * 1000;
 }
 
 function persistSettings() {
@@ -305,7 +340,7 @@ function readAll() {
             && typeof item === 'object'
             && typeof item.id === 'string'
             && typeof item.text === 'string'
-            && now - Number(item.updatedAt || 0) < MAX_AGE_MS);
+            && now - Number(item.updatedAt || 0) < keepDaysMs());
     } catch (error) {
         console.warn(TAG, 'read snapshots failed', error);
         return [];
@@ -318,7 +353,7 @@ function writeAll(list) {
     const trimmed = list
         .slice()
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
-        .slice(0, MAX_SNAPSHOTS);
+        .slice(0, maxSnapshots());
     try {
         localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
         storageFailed = false;
@@ -387,7 +422,7 @@ function updateBadge(text) {
     if (!badge || !label) {
         return;
     }
-    if (!settings().enabled || !generating) {
+    if (!settings().enabled || !generating || !settings().showBadge) {
         badge.classList.add('gg-hidden');
         return;
     }
@@ -440,6 +475,10 @@ function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
 /** 生成卡住（几十秒没有新 token 也没有结束事件）时，至少先把已有草稿钉死 */
 function armStallWatch() {
     clearStallWatch();
+    const ms = stallMs();
+    if (!ms) {
+        return;
+    }
     stallTimer = setTimeout(() => {
         stallTimer = null;
         if (!buffer || !generating) {
@@ -450,7 +489,7 @@ function armStallWatch() {
         if (length) {
             toast(`这条回复好像卡住了，已保住 ${length} 字草稿`, 'warning');
         }
-    }, STALL_WATCHDOG_MS);
+    }, ms);
 }
 
 function clearStallWatch() {
@@ -637,7 +676,7 @@ const RELOAD_PRONE_SELECTOR = [
 ].join(', ');
 
 function guardReloadProneClick(event) {
-    if (!generating || !settings().enabled || !settings().blockReload) {
+    if (!generating || !settings().enabled || !settings().blockReload || !settings().blockExtensionOps) {
         return;
     }
     const target = event.target;
@@ -1092,21 +1131,41 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
  * ------------------------------------------------------------------ */
 
 const SETTINGS_HTML = `
-<div class="gg-settings">
-    <div class="gg-set-title">Generation Guardian · 生成守护</div>
-    <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
-    <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-    <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框，你自己改完再按发送）</span></label>
-    <div class="gg-set-label">续写指令（点「续写」时用这一条，可自己改；下面两个按钮一键换预设）</div>
-    <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
-    <div class="gg-row">
-        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用剧情指令</button>
-        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
+<div class="inline-drawer-toggle inline-drawer-header">
+    <b>Generation Guardian · 生成守护</b>
+    <div class="inline-drawer-icon fa-solid fa-circle-chevron-up up"></div>
+</div>
+<div class="inline-drawer-content">
+    <div class="gg-sheet">
+        <div class="gg-sub">开关</div>
+        <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 更新 / 删除 / 清理）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
+
+        <div class="gg-diamond">◆</div>
+        <div class="gg-sub">续写指令</div>
+        <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
+        <div class="gg-row">
+            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用剧情指令</button>
+            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
+        </div>
+        <div class="gg-hint">点「续写」时发出去的就是这一条，可以改成自己习惯的说法。</div>
+
+        <div class="gg-diamond">◆</div>
+        <div class="gg-sub">存储</div>
+        <label class="gg-check gg-inline"><span>最多保留</span><input type="number" class="text_pole gg-num" id="gg-set-max" min="1" max="50" step="1"><span>条草稿</span></label>
+        <label class="gg-check gg-inline"><span>保留</span><input type="number" class="text_pole gg-num" id="gg-set-days" min="1" max="30" step="1"><span>天</span></label>
+        <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没新字就提示（0 关掉）</span></label>
+
+        <div class="gg-diamond">◆</div>
+        <div class="gg-sub">已保存草稿 <span class="gg-count" id="gg-snap-count">0</span></div>
+        <div id="gg-snap-list" class="gg-snap-list"></div>
+        <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
+        <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
+        <div class="gg-ver">v<span id="gg-ver">1.2.2</span> · smyz1987 · MIT</div>
     </div>
-    <div class="gg-hint">草稿存在本机浏览器 localStorage 里，只在这个设备、这个浏览器可见。手机端切后台被系统杀掉重载，也能靠它捡回来。</div>
-    <div class="gg-snap-head"><span>已保存草稿</span><span id="gg-snap-count">0</span></div>
-    <div id="gg-snap-list" class="gg-snap-list"></div>
-    <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
 </div>`;
 
 function mountSettings() {
@@ -1116,14 +1175,21 @@ function mountSettings() {
     }
     const wrapper = document.createElement('div');
     wrapper.id = 'gg-settings';
+    wrapper.className = 'inline-drawer';
     wrapper.innerHTML = SETTINGS_HTML;
     host.appendChild(wrapper);
 
     const s = settings();
     el('gg-set-enabled').checked = Boolean(s.enabled);
     el('gg-set-block').checked = Boolean(s.blockReload);
+    el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
+    el('gg-set-badge').checked = Boolean(s.showBadge);
     el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-prompt').value = resumePromptText();
+    el('gg-set-max').value = String(maxSnapshots());
+    el('gg-set-days').value = String(keepDays());
+    el('gg-set-stall').value = String(Math.round(stallMs() / 1000));
+    el('gg-ver').textContent = VERSION;
 
     el('gg-set-enabled').addEventListener('change', (event) => {
         s.enabled = Boolean(event.target.checked);
@@ -1153,6 +1219,42 @@ function mountSettings() {
     el('gg-set-autosend').addEventListener('change', (event) => {
         s.autoSend = Boolean(event.target.checked);
         persistSettings();
+    });
+    el('gg-set-ops').addEventListener('change', (event) => {
+        s.blockExtensionOps = Boolean(event.target.checked);
+        persistSettings();
+    });
+    el('gg-set-badge').addEventListener('change', (event) => {
+        s.showBadge = Boolean(event.target.checked);
+        if (!s.showBadge) {
+            updateBadge('');
+        } else if (generating) {
+            updateBadge(`生成守护：已保存 ${String(buffer?.text || '').length} 字 · 别刷新`);
+        }
+        persistSettings();
+    });
+    const bindNumber = (id, key, min, max, fallback, after) => {
+        const input = el(id);
+        input.addEventListener('change', (event) => {
+            const value = clampNumber(event.target.value, min, max, fallback);
+            s[key] = value;
+            event.target.value = String(value);
+            persistSettings();
+            after?.(value);
+        });
+    };
+    bindNumber('gg-set-max', 'maxSnapshots', 1, 50, MAX_SNAPSHOTS, () => {
+        writeAll(readAll());
+        refreshSnapList();
+    });
+    bindNumber('gg-set-days', 'keepDays', 1, 30, 3, () => {
+        writeAll(readAll());
+        refreshSnapList();
+    });
+    bindNumber('gg-set-stall', 'stallSeconds', 0, 600, STALL_WATCHDOG_MS / 1000, () => {
+        if (generating) {
+            armStallWatch();
+        }
     });
     const applyPreset = (text, label) => {
         s.resumePrompt = text;
@@ -1285,7 +1387,7 @@ function initOnce() {
     setTimeout(scanForRecoverySafe, 600);
 
     window.GenerationGuardian = {
-        version: '1.2.1',
+        version: VERSION,
         settings: settings,
         snapshots: readAll,
         /** 内存里正在写的这条草稿（localStorage 写不进去时的逃生口，复制即可救回） */
