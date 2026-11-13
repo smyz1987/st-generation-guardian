@@ -152,17 +152,9 @@ npm test
 "homePage": "https://github.com/你的用户名/st-generation-guardian"
 ```
 
-然后：
+然后在本文件夹里执行（本地仓库已经初始化好了，已经有一次提交，所以只要加远端再推）：
 
 ```bash
-cd st-generation-guardian
-
-git init
-git add .
-git commit -m "feat: Generation Guardian 1.0.0 - 生成断点保存与自动续写"
-git branch -M main
-
-# 公开仓库（手机端直装最省事）
 git remote add origin https://github.com/<你的用户名>/st-generation-guardian.git
 git push -u origin main
 ```
@@ -175,6 +167,13 @@ git push origin v1.0.0
 ```
 
 想更省事的做法：先在网页上建一个空仓库（public，不要勾选 README/gitignore），再按上面命令推。
+
+如果没配过 git 身份，先在仓库里设一次（只影响这个仓库）：
+
+```bash
+git config user.name "你的名字"
+git config user.email "你的邮箱"
+```
 
 ---
 
