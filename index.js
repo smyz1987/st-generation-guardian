@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.11';
+const VERSION = '1.3.12';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS = {
     // 生成中是否显示「已保存 N 字」的浮动徽标
     showBadge: true,
     // 点「续写」后是否立刻替你发出去；关掉就只把指令填进输入框，自己改完按发送
-    autoSend: true,
+    autoSend: false,
     // 最多保留几条草稿
     maxSnapshots: MAX_SNAPSHOTS,
     // 草稿保留几天
@@ -257,7 +257,13 @@ function putToTextarea(text) {
     area.value = text;
     area.dispatchEvent(new Event('input', { bubbles: true }));
     try {
+        // 光标停在指令末尾 —— 「续写」默认只填不发，她多半要在这后面接着补一句再发
         area.focus();
+        const end = area.value.length;
+        if (typeof area.setSelectionRange === 'function') {
+            area.setSelectionRange(end, end);
+        }
+        area.scrollTop = area.scrollHeight;
     } catch {
         /* ignore */
     }
@@ -1346,6 +1352,13 @@ function resumePromptText() {
     return value || DEFAULT_RESUME_PROMPT;
 }
 
+/** 「接回并续写」按下之后的提示 —— 只填不发的时候别再说「正在发」 */
+function promptToastText() {
+    return settings().autoSend
+        ? '已接回，正在发续写指令…'
+        : '已接回，续写指令已放进输入框，补完按发送';
+}
+
 /**
  * 把接续指令放进输入框；按设置决定「直接替你发出去」还是「只填不发等你按发送」。
  * 走的是酒馆的标准路径：写进输入框 → 调 Generate('normal')，
@@ -1571,7 +1584,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
         toast(saved
-            ? (thenPrompt ? '已接回，正在发续写指令…' : '已接回断点位置')
+            ? (thenPrompt ? promptToastText() : '已接回断点位置')
             : '已接回，但保存聊天失败 —— 先别刷新页面', saved ? 'success' : 'warning');
         if (thenPrompt) {
             sendResumePrompt();
@@ -1660,7 +1673,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
 
     removeSnapshot(snapshot.id);
     pendingSnapshot = null;
-    toast(thenPrompt ? '已接回，正在发续写指令…' : '已接回聊天', 'success');
+    toast(thenPrompt ? promptToastText() : '已接回聊天', 'success');
     if (thenPrompt) {
         sendResumePrompt();
     }
@@ -1690,7 +1703,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」后直接替我发出去（默认关：只把指令放进输入框，你可以先补几句再按发送）</span></label>
 
         <div class="gg-diamond">◆</div>
         <div class="gg-sub">续写指令</div>
@@ -1717,7 +1730,7 @@ const SETTINGS_HTML = `
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.11</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.12</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 

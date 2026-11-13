@@ -556,6 +556,8 @@ async function scenarioResumePrompt() {
         enabled: true,
         blockReload: true,
         autoRestore: false,
+        // 这个场景测的就是「打开自动发送」这条路；默认是关的（见 [26]）
+        autoSend: true,
         resumePrompt: '继续生成上一个番外，衔接上文末尾，不要从头开始。',
     };
 
@@ -817,6 +819,8 @@ async function scenarioPromptSendFailure() {
     console.log('\n[15] 「续写」发送失败 → 指令回填输入框，不会凭空消失');
     captureConsole();
     storage.clear();
+    // 要测「发送失败」这条路径，得先把自动发送打开（默认是关的）
+    extensionSettingsStub['generation-guardian'] = { autoSend: true };
 
     const chat = makeChat();
     const ctx = createWorld({ chat });
@@ -847,6 +851,7 @@ async function scenarioPromptSendFailure() {
     eq('先发了一次 normal', ctx2.__calls.generate.join(','), 'normal');
     ok('输入框里还有那条指令（没丢）', document.getElementById('send_textarea').value.startsWith('继续生成上一轮剧情'));
 
+    delete extensionSettingsStub['generation-guardian'];
     const issues = restoreConsole();
     ok('没有发给用户看的 error 日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
@@ -1412,6 +1417,42 @@ async function scenarioEmptyPlaceholder() {
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
+async function scenarioFillOnlyByDefault() {
+    console.log('\n[26] 出厂默认：点「续写」只把指令放进输入框，一个请求都不发');
+    captureConsole();
+    storage.clear();
+    // 用出厂默认跑 —— 不预设任何 extension_settings
+    delete extensionSettingsStub['generation-guardian'];
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '他刚要开口，就被打断了。');
+    pagehide(ctx);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(700);
+    ok('卡片弹出', panelVisible());
+
+    document.getElementById('gg-btn-recover-write').click();
+    await sleep(90);
+
+    eq('草稿写回聊天', chat.length, 3);
+    eq('一个生成请求都没发（额度不动）', ctx2.__calls.generate.length, 0);
+    const area = document.getElementById('send_textarea');
+    ok('指令已经放进输入框', String(area.value).startsWith('继续生成上一轮剧情'), area.value);
+    eq('光标停在指令末尾，接着往下打就行', area.selectionStart, area.value.length);
+
+    delete extensionSettingsStub['generation-guardian'];
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1441,6 +1482,7 @@ async function main() {
     await scenarioHugeDraft();
     await scenarioSwipeLanded();
     await scenarioEmptyPlaceholder();
+    await scenarioFillOnlyByDefault();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {
