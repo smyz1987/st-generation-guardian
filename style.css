@@ -1,77 +1,114 @@
-/* Generation Guardian — 四套可切换主题（字体全部跟随酒馆全局设置） */
+/* Generation Guardian — 视觉系统
+ * ================================================================
+ * 八套主题，色号逐字取自 D:\yiyou\网页配色逻辑 的八张配色卡。
+ * 每套只给两支：--gg-base（那张卡的浅色底）、--gg-deep（那张卡的彩色中间调）。
+ * 其余十二个角色全部由这两支按同一组比例混出来 —— 八套同构，
+ * 换主题只换这两个值，组件不用各配一遍。
+ *
+ * 这套配色的逻辑本身就是：浅底负责大面积，彩色只出现在文字、标题、
+ * 按钮和细线上。所以层次靠明度差（底 → 容器 → 卡片，一层比一层亮），
+ * 不给任何设置项刷独立底色。
+ *
+ * 组件尺子（八套共用，只换色不动尺寸）
+ *   间距 4 / 8 / 12 / 16 / 24
+ *   圆角 6 控件 · 8 按钮与色卡 · 12 面板
+ *   边框 1px hairline，一律 --gg-border
+ *   字号 11 注脚 · 12 辅助 · 12.5 正文 · 13 标题 · 15 面板标题
+ *   状态 hover 只动边框与 8% 主色 · active 缩 0.985 · focus 1px 描边 + 2px offset
+ *
+ * 颜色角色（可读性优先，全部过对比度）
+ *   --gg-bg        页面背景
+ *   --gg-surface   内容容器
+ *   --gg-card      卡片（全站最亮的一层）
+ *   --gg-hover     悬停背景
+ *   --gg-text      主要文字
+ *   --gg-text-2    次要文字
+ *   --gg-muted     弱提示
+ *   --gg-primary   主色：标题、主按钮、开关打开
+ *   --gg-secondary 辅助色：描边、悬停边框
+ *   --gg-accent    强调：编号、顶部细线、选中点（面积最小）
+ *   --gg-border    边框与分隔线
+ *   --gg-input     输入框背景
+ *   --gg-on        primary 上的文字色
+ *   --gg-danger    删除类动作（跨主题语义色，不随主题变）
+ *
+ * 液态玻璃：那份方案的核心结论是「CSS 定义形，WebGL 定义光」，真正的玻璃感
+ * 来自对背景的重新计算。扩展面板里没有 WebGL 的位置，所以只移植两条能落地的：
+ *   1) 方向性边缘光 —— 左上 hairline 亮、右下 hairline 暗（权重 0.66 : 0.48），
+ *      用两条 inset 1px 做，而不是一圈均匀描边；
+ *   2) 低 tint —— 卡片透出一点底色，不糊成一块奶白塑料。
+ * =============================================================== */
 
-/* ---------- 主题色板：色号取自参考图的实测取值 ---------- */
+/* --gg-ink 是「彩色块上的字」：deep 本身够深的配浅字，deep 偏亮的配深字，
+   八套各自定死，换主题不会出现读不清的字。 */
 
-body.gg-theme-trianon {
-    /* 凡尔赛金（自配默认）：深棕底、象牙字、金点缀 */
-    --gg-surface: #241d13;
-    --gg-row: #33281a;
-    --gg-text: #f7f0dc;
-    --gg-dim: #c9a961;
-    --gg-a: #c9a961;
-    --gg-a2: #e2cb92;
-    --gg-tint: #a8925c;
-    --gg-on: #261f16;
+/* ---------- 一：杏仁白 + 雾玫瑰 ---------- */
+body.gg-theme-almond  { --gg-base: #f3e8dc; --gg-deep: #a37070; --gg-ink: #fffdf8; }
+/* ---------- 二：暖奶油 + 迷雾蓝 ---------- */
+body.gg-theme-cream   { --gg-base: #fdf4e3; --gg-deep: #7c8d99; --gg-ink: #232a30; }
+/* ---------- 三：雾蓝灰 + 红陶土 ---------- */
+body.gg-theme-haze    { --gg-base: #e1e6e9; --gg-deep: #a35e5e; --gg-ink: #fffdf8; }
+/* ---------- 四：桃奶茶 + 鼠尾草绿 ---------- */
+body.gg-theme-peach   { --gg-base: #f6e3d7; --gg-deep: #a3a88f; --gg-ink: #33352a; }
+/* ---------- 五：白茶灰 + 琥珀褐 ---------- */
+body.gg-theme-ash     { --gg-base: #efece6; --gg-deep: #9e6c55; --gg-ink: #fffdf8; }
+/* ---------- 六：南瓜米 + 海盐蓝 ---------- */
+body.gg-theme-pumpkin { --gg-base: #f5e2c3; --gg-deep: #7da8b1; --gg-ink: #23343a; }
+/* ---------- 七：奶油绿 + 裸玫瑰粉 ---------- */
+body.gg-theme-butter  { --gg-base: #edf0e2; --gg-deep: #b48a78; --gg-ink: #3b2c25; }
+/* ---------- 八：莲子白 + 浅藤紫 ---------- */
+body.gg-theme-lotus   { --gg-base: #f5f2ee; --gg-deep: #a9a1b0; --gg-ink: #37333c; }
+
+/* 单页并排预览用：扩展本身只会用 body 上的 class */
+[data-gg-theme="almond"]  { --gg-base: #f3e8dc; --gg-deep: #a37070; --gg-ink: #fffdf8; }
+[data-gg-theme="cream"]   { --gg-base: #fdf4e3; --gg-deep: #7c8d99; --gg-ink: #232a30; }
+[data-gg-theme="haze"]    { --gg-base: #e1e6e9; --gg-deep: #a35e5e; --gg-ink: #fffdf8; }
+[data-gg-theme="peach"]   { --gg-base: #f6e3d7; --gg-deep: #a3a88f; --gg-ink: #33352a; }
+[data-gg-theme="ash"]     { --gg-base: #efece6; --gg-deep: #9e6c55; --gg-ink: #fffdf8; }
+[data-gg-theme="pumpkin"] { --gg-base: #f5e2c3; --gg-deep: #7da8b1; --gg-ink: #23343a; }
+[data-gg-theme="butter"]  { --gg-base: #edf0e2; --gg-deep: #b48a78; --gg-ink: #3b2c25; }
+[data-gg-theme="lotus"]   { --gg-base: #f5f2ee; --gg-deep: #a9a1b0; --gg-ink: #37333c; }
+
+/* 统一派生：十二个角色全部来自 base / deep 这两支 */
+body.gg-theme-almond,
+body.gg-theme-cream,
+body.gg-theme-haze,
+body.gg-theme-peach,
+body.gg-theme-ash,
+body.gg-theme-pumpkin,
+body.gg-theme-butter,
+body.gg-theme-lotus,
+[data-gg-theme] {
+    --gg-bg: var(--gg-base);
+    --gg-surface: color-mix(in srgb, var(--gg-base) 62%, #fffdf8);
+    --gg-card: color-mix(in srgb, var(--gg-base) 30%, #fffdf8);
+    --gg-hover: color-mix(in srgb, var(--gg-deep) 11%, transparent);
+    --gg-text: color-mix(in srgb, var(--gg-deep) 38%, #1e1a18);
+    --gg-text-2: color-mix(in srgb, var(--gg-deep) 54%, #1e1a18);
+    --gg-muted: color-mix(in srgb, var(--gg-deep) 68%, #1e1a18);
+    --gg-primary: color-mix(in srgb, var(--gg-deep) 55%, #1e1a18);
+    --gg-secondary: color-mix(in srgb, var(--gg-deep) 88%, var(--gg-base));
+    --gg-accent: var(--gg-deep);
+    --gg-border: color-mix(in srgb, var(--gg-deep) 38%, var(--gg-base));
+    --gg-input: color-mix(in srgb, var(--gg-base) 22%, #ffffff);
+    --gg-on: #fffdf8;
+    --gg-danger: #a35e5e;
 }
 
-body.gg-theme-dusk {
-    /* 雪松黄昏 ①：这张色板的主调是被夕阳照亮的雪原 —— 暖奶油铺底、CONCRETE 写字。
-       Dawn 和 Peaches 是画面里占面积最大的两支，就该当底和面用；
-       Concrete 是远处树影，面积小但最沉，正好拿来做字。 */
-    --gg-surface: #f8ccaa;   /* Dawn —— 面板底，暖奶油 */
-    --gg-row: #f2c1a3;       /* Peaches & Cream —— 行条，比底深半档 */
-    --gg-text: #525871;      /* Concrete —— 正文，压在暖底上 4.1:1 */
-    --gg-dim: #525871;       /* 浅底上不再硬凑第二种灰，小字靠字号分层 */
-    --gg-a: #525871;         /* Concrete —— 按钮实底、选中态 */
-    --gg-a2: #cd9fa0;        /* Rosewood —— 编号、行间细线、角线 */
-    --gg-tint: #857c91;
-    --gg-on: #f8ccaa;        /* 深色按钮上的字回到奶油色 */
-}
-
-body.gg-theme-neon {
-    /* 道顿堀霓虹 ②：Asphalt 铺底 → Blue Spruce 做行 → 蜜橘写字 → 朱红点缀 */
-    --gg-surface: #212934;   /* Asphalt —— 面板底 */
-    --gg-row: #4b536b;       /* Blue Spruce —— 行底，之前被当成文字色所以整片糊在一起 */
-    --gg-text: #ffae81;      /* Honeydew —— 正文 */
-    --gg-dim: #c9947a;       /* Fawn —— 说明小字 */
-    --gg-a: #f1444e;         /* Vermillion —— 小面积点缀 */
-    --gg-a2: #c9947a;        /* Fawn —— 描边与角线 */
-    --gg-tint: #4b536b;
-    --gg-on: #fff3ec;
-}
-
-body.gg-theme-frost {
-    /* 雪枝河岸 ③：Moonlight 铺底 → 霜蓝做行 → 牛津蓝写字 */
-    --gg-surface: #f0ecdd;   /* Moonlight —— 雪面底 */
-    --gg-row: color-mix(in srgb, #8ba3c5 26%, #f0ecdd);  /* Frost Blue 稀释成行底 */
-    --gg-text: #02122f;      /* Oxford Blue —— 正文 */
-    --gg-dim: #495b7d;       /* Steel —— 说明小字 */
-    --gg-a: #495b7d;         /* Steel —— 按钮实底（浅底上要用深色块才立得住） */
-    --gg-a2: #23354d;        /* Storm —— 描边与角线 */
-    --gg-tint: #8ba3c5;
-    --gg-on: #f0ecdd;        /* 深钢蓝按钮上写雪白 */
-}
-
-/* 单页并排预览时用元素级属性覆盖（扩展本身不会设这个属性） */
-[data-gg-theme="trianon"] { --gg-surface:#241d13; --gg-row:#33281a; --gg-text:#f7f0dc; --gg-dim:#c9a961; --gg-a:#c9a961; --gg-a2:#e2cb92; --gg-on:#261f16; }
-[data-gg-theme="dusk"] { --gg-surface:#f8ccaa; --gg-row:#f2c1a3; --gg-text:#525871; --gg-dim:#857c91; --gg-a:#525871; --gg-a2:#cd9fa0; --gg-on:#f8ccaa; }
-[data-gg-theme="neon"] { --gg-surface:#212934; --gg-row:#4b536b; --gg-text:#ffae81; --gg-dim:#c9947a; --gg-a:#f1444e; --gg-a2:#c9947a; --gg-on:#fff3ec; }
-[data-gg-theme="frost"] { --gg-surface:#f0ecdd; --gg-row:#dcdcd2; --gg-text:#02122f; --gg-dim:#495b7d; --gg-a:#495b7d; --gg-a2:#23354d; --gg-on:#f0ecdd; }
-
-/* 派生色：声明在元素上，才能吃到 body 继承来的当前主题色 */
+/* 派生：声明在会吃到主题继承的元素上 */
 #gg-badge,
 #gg-panel,
 #gg-settings {
-    --gg-surface2: color-mix(in srgb, var(--gg-surface, #241d13) 74%, #000);
-    --gg-line: color-mix(in srgb, var(--gg-a, #c9a961) 58%, transparent);
-    --gg-line-soft: color-mix(in srgb, var(--gg-a2, #e2cb92) 34%, transparent);
-    --gg-line-deep: color-mix(in srgb, var(--gg-surface2, #1a150e) 62%, transparent);
-    --gg-wash: color-mix(in srgb, var(--gg-dim, #a8925c) 12%, transparent);
-    --gg-wash-strong: color-mix(in srgb, var(--gg-dim, #a8925c) 24%, transparent);
-    --gg-halo: color-mix(in srgb, var(--gg-a, #c9a961) 34%, transparent);
+    --gg-hair: color-mix(in srgb, var(--gg-text) 10%, transparent);
+    --gg-hair-2: color-mix(in srgb, var(--gg-text) 16%, transparent);
+    --gg-tint-4: color-mix(in srgb, var(--gg-primary) 4%, transparent);
+    --gg-accent-12: color-mix(in srgb, var(--gg-accent) 12%, transparent);
+    --gg-lift: rgba(255, 255, 255, 0.86);
+    --gg-sink: color-mix(in srgb, var(--gg-text) 7%, transparent);
+    --gg-shadow: color-mix(in srgb, var(--gg-primary) 22%, transparent);
 }
 
-/* ---------- 生成中的小徽标 ---------- */
+/* ---------- 生成中的徽标 ---------- */
 
 #gg-badge {
     position: fixed;
@@ -80,16 +117,20 @@ body.gg-theme-frost {
     z-index: 3000;
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 13px;
-    border-radius: 3px;
+    gap: 8px;
+    padding: 7px 13px;
+    border-radius: 8px;
     font-size: 11.5px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     line-height: 1.3;
-    color: var(--gg-text, #e8e8e8);
-    background: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.9));
-    border: 1px solid var(--gg-line);
-    box-shadow: inset 0 0 0 1px var(--gg-line-soft), 0 5px 18px rgba(0, 0, 0, 0.32);
+    color: var(--gg-ink);
+    background: var(--gg-deep);
+    border: 1px solid color-mix(in srgb, var(--gg-deep) 80%, #1e1a18);
+    box-shadow:
+        inset 1px 1px 0 color-mix(in srgb, #fff 18%, transparent),
+        0 6px 18px color-mix(in srgb, var(--gg-deep) 34%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    backdrop-filter: blur(14px) saturate(1.3);
     pointer-events: none;
     max-width: 62vw;
     overflow: hidden;
@@ -98,18 +139,17 @@ body.gg-theme-frost {
 }
 
 #gg-badge .gg-dot {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
-    background: var(--gg-a2, #e2cb92);
-    box-shadow: 0 0 8px var(--gg-a2, #e2cb92), 0 0 16px var(--gg-halo);
-    animation: gg-pulse 1.4s ease-in-out infinite;
     flex: 0 0 auto;
+    background: var(--gg-base);
+    animation: gg-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes gg-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.82); }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 /* ---------- 恢复卡片 ---------- */
@@ -128,63 +168,30 @@ body.gg-theme-frost {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 12px;
     width: 100%;
-    padding: 18px 15px 14px;
-    border-radius: 4px;
-    color: var(--gg-text, #e8e8e8);
-    background-color: var(--gg-surface, rgba(18, 18, 22, 0.96));
-    border: 1px solid var(--gg-line);
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-
-    /* 底层：三片渐变压出纵深（左上主色斜光 / 右侧中间色 / 底部压深），
-       再叠四角的 L 形细线，用最亮的 a2 画，和主色的外框拉开层次 */
-    background-image:
-        linear-gradient(158deg, color-mix(in srgb, var(--gg-a) 26%, transparent) 0%, transparent 44%),
-        linear-gradient(338deg, color-mix(in srgb, var(--gg-a2) 22%, transparent) 0%, transparent 50%),
-        linear-gradient(180deg, transparent 54%, color-mix(in srgb, var(--gg-surface2) 66%, transparent) 100%),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2)),
-        linear-gradient(var(--gg-a2), var(--gg-a2));
-    background-repeat: no-repeat;
-    background-size:
-        100% 100%, 100% 100%, 100% 100%,
-        18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px;
-    background-position:
-        0 0, 0 0, 0 0,
-        left 6px top 6px, left 6px top 6px,
-        right 6px top 6px, right 6px top 6px,
-        left 6px bottom 6px, left 6px bottom 6px,
-        right 6px bottom 6px, right 6px bottom 6px;
+    padding: 17px 16px 15px;
+    border-radius: 12px;
+    color: var(--gg-text);
+    background: color-mix(in srgb, var(--gg-card) 92%, transparent);
+    border: 1px solid var(--gg-border);
+    box-shadow:
+        inset 1px 1px 0 var(--gg-lift),
+        inset -1px -1px 0 var(--gg-sink),
+        0 18px 42px color-mix(in srgb, var(--gg-primary) 24%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.35);
+    backdrop-filter: blur(20px) saturate(1.35);
 }
 
-/* 顶部细密缆线纹 */
+/* 顶部一条 1px 主色细线，比阴影更能定住卡片上边 */
 #gg-panel .gg-card::before {
     content: "";
     position: absolute;
-    left: 10px;
-    right: 10px;
-    top: 4px;
-    height: 5px;
-    background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-line);
-    pointer-events: none;
-}
-
-/* 内层细框 */
-#gg-panel .gg-card::after {
-    content: "";
-    position: absolute;
-    inset: 12px;
-    border: 1px solid var(--gg-line-soft);
-    border-radius: 2px;
+    left: 16px;
+    right: 16px;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--gg-accent), transparent 72%);
     pointer-events: none;
 }
 
@@ -193,73 +200,68 @@ body.gg-theme-frost {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--gg-line-soft);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--gg-a) 12%, transparent), transparent);
+    margin: -3px -2px 0;
+    padding: 7px 10px;
+    border-radius: 7px;
+    background: var(--gg-deep);
+    box-shadow: inset 1px 1px 0 color-mix(in srgb, #fff 20%, transparent);
 }
 
 #gg-panel .gg-title {
-    font-weight: 700;
-    font-size: 13.5px;
-    letter-spacing: 0.05em;
-    padding-left: 2px;
-    color: var(--gg-a2, #e2cb92);
-    text-shadow: 0 0 14px var(--gg-halo);
-}
-
-#gg-panel .gg-title::before {
-    content: "";
-    display: inline-block;
-    width: 2px;
-    height: 12px;
-    margin-right: 8px;
-    vertical-align: middle;
-    background: linear-gradient(180deg, var(--gg-a2), var(--gg-a) 62%, var(--gg-mid));
-    box-shadow: 0 0 7px var(--gg-halo);
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--gg-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 #gg-panel .gg-icon-btn {
-    background: transparent;
-    border: none;
-    color: inherit;
-    opacity: 0.6;
+    background: none;
+    border: 0;
+    color: var(--gg-ink);
+    opacity: 0.78;
+    font-family: inherit;
     font-size: 13px;
     line-height: 1;
-    padding: 4px 6px;
+    padding: 4px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 6px;
     cursor: pointer;
-    min-width: 28px;
-    min-height: 28px;
-    transition: opacity 0.15s ease;
+    transition: color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
 #gg-panel .gg-icon-btn:hover {
     opacity: 1;
+    background: color-mix(in srgb, var(--gg-ink) 14%, transparent);
 }
 
 #gg-panel .gg-meta {
     font-size: 11.5px;
     letter-spacing: 0.02em;
-    color: var(--gg-dim, #a8925c);
-    opacity: 0.96;
-    line-height: 1.5;
+    line-height: 1.55;
+    color: var(--gg-text-2);
     word-break: break-word;
-    padding-left: 2px;
 }
 
 #gg-panel .gg-preview {
     flex: 1 1 auto;
-    min-height: 62px;
+    min-height: 96px;
     max-height: 34vh;
     overflow: auto;
-    padding: 10px 11px;
-    border-radius: 3px;
+    padding: 12px 13px;
+    border-radius: 8px;
     font-size: 12.5px;
     line-height: 1.75;
+    color: var(--gg-text);
     white-space: pre-wrap;
     word-break: break-word;
-    background: linear-gradient(160deg, color-mix(in srgb, var(--gg-dim) 16%, transparent), color-mix(in srgb, var(--gg-surface2) 24%, transparent));
-    border: 1px solid var(--gg-line-soft);
-    border-left: 2px solid var(--gg-a);
+    background: var(--gg-surface);
+    border: 1px solid var(--gg-border);
     -webkit-overflow-scrolling: touch;
     user-select: text;
     -webkit-user-select: text;
@@ -268,96 +270,113 @@ body.gg-theme-frost {
 #gg-panel .gg-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-}
-
-#gg-panel .gg-btn,
-#gg-settings .gg-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    min-width: 76px;
-    padding: 7px 11px;
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 12.5px;
-    letter-spacing: 0.03em;
-    line-height: 1.2;
-    cursor: pointer;
-    color: var(--gg-text, #e8e8e8);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--gg-dim) 18%, transparent), color-mix(in srgb, var(--gg-surface2) 34%, transparent));
-    border: 1px solid var(--gg-line-deep);
-    border-left: 2px solid var(--gg-line);
-    transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease, box-shadow 0.16s ease;
-}
-
-#gg-panel .gg-btn:hover,
-#gg-settings .gg-btn:hover {
-    background: var(--gg-wash-strong);
-    border-color: var(--gg-a, #c9a961);
-    box-shadow: 0 0 0 1px var(--gg-line-soft) inset;
-}
-
-#gg-panel .gg-btn:active,
-#gg-settings .gg-btn:active {
-    transform: scale(0.98);
-}
-
-#gg-panel .gg-btn.gg-primary,
-#gg-settings .gg-btn.gg-primary {
-    background: linear-gradient(180deg, var(--gg-a2, #e2cb92) 0%, var(--gg-a, #c9a961) 56%, color-mix(in srgb, var(--gg-a, #c9a961) 62%, var(--gg-dim, #a8925c)) 100%);
-    border-color: var(--gg-deep, #7a5f2b);
-    border-left: 2px solid var(--gg-a2, #e2cb92);
-    color: var(--gg-on, #261f16);
-    font-weight: 700;
-    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 46%, transparent), 0 3px 10px var(--gg-line-deep);
-}
-
-#gg-panel .gg-btn.gg-primary:hover,
-#gg-settings .gg-btn.gg-primary:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 2px 10px var(--gg-line-soft);
-}
-
-#gg-panel .gg-btn.gg-danger,
-#gg-settings .gg-btn.gg-danger {
-    background: rgba(178, 92, 92, 0.1);
-    border-color: rgba(178, 92, 92, 0.5);
-}
-
-#gg-panel .gg-btn.gg-danger:hover,
-#gg-settings .gg-btn.gg-danger:hover {
-    background: rgba(178, 92, 92, 0.2);
-    border-color: rgba(178, 92, 92, 0.8);
+    gap: 8px;
 }
 
 #gg-panel .gg-foot {
     font-size: 11px;
     letter-spacing: 0.02em;
-    opacity: 0.72;
     line-height: 1.5;
+    color: var(--gg-muted);
 }
 
 #gg-panel .gg-link {
     background: none;
-    border: none;
+    border: 0;
     padding: 0 2px;
-    color: var(--gg-a, #c9a961);
     font-family: inherit;
     font-size: 11px;
+    color: var(--gg-primary);
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
-/* ---------- 设置抽屉（酒馆扩展区里的那个条目） ---------- */
+/* ---------- 按钮：一套尺子，三种角色 ---------- */
+
+#gg-panel .gg-btn,
+#gg-settings .gg-btn {
+    flex: 1 1 auto;
+    min-width: 78px;
+    min-height: 34px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    cursor: pointer;
+    color: var(--gg-text);
+    background: var(--gg-surface);
+    border: 1px solid var(--gg-border);
+    transition: border-color 0.16s ease, background 0.16s ease, transform 0.1s ease;
+}
+
+#gg-panel .gg-btn:hover,
+#gg-settings .gg-btn:hover {
+    border-color: var(--gg-secondary);
+    background: var(--gg-hover);
+}
+
+#gg-panel .gg-btn:active,
+#gg-settings .gg-btn:active {
+    transform: scale(0.985);
+}
+
+#gg-panel .gg-btn:focus-visible,
+#gg-settings .gg-btn:focus-visible {
+    outline: 1px solid var(--gg-primary);
+    outline-offset: 2px;
+}
+
+#gg-panel .gg-btn.gg-primary,
+#gg-settings .gg-btn.gg-primary {
+    background: var(--gg-deep);
+    border-color: color-mix(in srgb, var(--gg-deep) 78%, #1e1a18);
+    color: var(--gg-ink);
+    font-weight: 600;
+    box-shadow:
+        inset 1px 1px 0 color-mix(in srgb, #fff 22%, transparent),
+        0 4px 12px color-mix(in srgb, var(--gg-deep) 34%, transparent);
+}
+
+#gg-panel .gg-btn.gg-primary:hover,
+#gg-settings .gg-btn.gg-primary:hover {
+    filter: brightness(1.09);
+}
+
+#gg-panel .gg-btn.gg-danger,
+#gg-settings .gg-btn.gg-danger {
+    color: var(--gg-danger);
+    border-color: color-mix(in srgb, var(--gg-danger) 38%, transparent);
+    background: color-mix(in srgb, var(--gg-danger) 8%, transparent);
+}
+
+#gg-panel .gg-btn.gg-danger:hover,
+#gg-settings .gg-btn.gg-danger:hover {
+    border-color: color-mix(in srgb, var(--gg-danger) 66%, transparent);
+    background: color-mix(in srgb, var(--gg-danger) 14%, transparent);
+}
+
+#gg-settings .gg-btn.gg-mini {
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 30px;
+    padding: 5px 11px;
+    font-size: 11.5px;
+}
+
+#gg-settings .gg-btn.gg-full {
+    width: 100%;
+    margin-top: 12px;
+}
+
+/* ---------- 设置抽屉 ---------- */
 
 #gg-settings {
     margin: 10px 0;
-    color: var(--gg-text, #e8e8e8);
-}
-
-#gg-settings .gg-sheet {
-    color: var(--gg-text, #e8e8e8);
+    color: var(--gg-text);
+    counter-reset: ggsec;
 }
 
 #gg-settings .inline-drawer-header {
@@ -365,188 +384,230 @@ body.gg-theme-frost {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 7px 2px;
-    border-bottom: 1px solid var(--gg-line-soft);
+    margin-top: 10px;
+    padding: 9px 12px 9px 13px;
+    border-radius: 10px;
+    border: 0;
+    background: color-mix(in srgb, var(--gg-deep) 86%, #1e1a18);
+    box-shadow: inset 1px 1px 0 color-mix(in srgb, #fff 20%, transparent);
+    color: var(--gg-ink);
 }
 
 #gg-settings .inline-drawer-header b {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--gg-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 #gg-settings .inline-drawer-header b::before {
-    content: "◆";
-    color: var(--gg-a, #c9a961);
-    font-size: 8px;
-    margin-right: 6px;
-    vertical-align: middle;
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 8px;
+    vertical-align: 1px;
+    border-radius: 1px;
+    background: var(--gg-base);
+    opacity: 0.85;
+}
+
+/* 抽屉展开的箭标也跟着走 */
+#gg-settings .inline-drawer-header .inline-drawer-toggle {
+    color: var(--gg-ink);
+    opacity: 0.8;
 }
 
 #gg-settings .inline-drawer-content {
-    padding: 0 1px;
+    padding: 0;
 }
 
+/* 面板本体：全站最亮的一层，浮在底色上 */
 #gg-settings .gg-sheet {
     position: relative;
-    margin-top: 8px;
-    padding: 16px 12px 12px;
-    border-radius: 5px;
-    background-color: var(--gg-surface, #241d13);
-    border: 1px solid var(--gg-line);
-    box-shadow: inset 0 0 0 1px var(--gg-line-soft), 0 12px 30px rgba(0, 0, 0, 0.28);
-    background-image:
-        linear-gradient(180deg, color-mix(in srgb, var(--gg-a2, #e2cb92) 9%, transparent), transparent 26%),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line));
-    background-repeat: no-repeat;
-    background-size: 100% 100%, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
-    background-position:
-        0 0,
-        left 5px top 5px, left 5px top 5px,
-        right 5px top 5px, right 5px top 5px,
-        left 5px bottom 5px, left 5px bottom 5px,
-        right 5px bottom 5px, right 5px bottom 5px;
+    margin-top: 11px;
+    padding: 20px 18px 16px;
+    border-radius: 12px;
+    color: var(--gg-text);
+    background: color-mix(in srgb, var(--gg-card) 95%, transparent);
+    border: 1px solid var(--gg-border);
+    box-shadow:
+        inset 1px 1px 0 var(--gg-lift),
+        inset -1px -1px 0 var(--gg-sink),
+        0 14px 36px color-mix(in srgb, var(--gg-primary) 18%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
 }
 
+/* ---------- 分区标题 ---------- */
+
+/* 面板顶部一条主色细线收口，跟恢复卡片同一手法 */
 #gg-settings .gg-sheet::before {
     content: "";
     position: absolute;
-    left: 10px;
-    right: 10px;
-    top: 4px;
-    height: 5px;
-    background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-line);
+    left: 18px;
+    right: 18px;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--gg-deep), transparent 68%);
     pointer-events: none;
-}
-
-#gg-settings {
-    counter-reset: ggsec;
 }
 
 #gg-settings .gg-sub {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 16px 0 8px;
-    font-size: 10.5px;
+    align-items: baseline;
+    gap: 9px;
+    margin: 24px 0 10px;
+    font-size: 11px;
+    font-weight: 600;
     letter-spacing: 0.14em;
-    color: var(--gg-a2, #e2cb92);
+    color: var(--gg-primary);
 }
 
 #gg-settings .gg-sub:first-child {
-    margin-top: 2px;
+    margin-top: 0;
 }
 
 #gg-settings .gg-sub::before {
     counter-increment: ggsec;
     content: counter(ggsec, decimal-leading-zero);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--gg-a, #c9a961);
-    padding-right: 1px;
-    border-right: 1px solid var(--gg-line-soft);
     flex: 0 0 auto;
+    width: 19px;
+    height: 15px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--gg-ink);
+    background: var(--gg-deep);
 }
 
 #gg-settings .gg-sub::after {
     content: "";
     flex: 1 1 auto;
     height: 1px;
-    background: linear-gradient(90deg, var(--gg-line), transparent);
+    background: linear-gradient(90deg, var(--gg-hair-2), transparent);
 }
 
+/* 原来的 ◆ 分隔块只当留白用 */
 #gg-settings .gg-diamond {
-    margin: 13px 0 0;
-    text-align: center;
-    color: color-mix(in srgb, var(--gg-a, #c9a961) 62%, transparent);
-    font-size: 9px;
-    letter-spacing: 0.7em;
-    text-indent: 0.7em;
+    height: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 0;
+    line-height: 0;
     user-select: none;
 }
 
-/* 主题选择器 */
+/* ---------- 主题色卡：一块彩色底板，八张浅卡 ---------- */
+
+/* 全屏唯一一块大面积彩色就在这里：第一节「主题」是一条彩色底板，
+   八张浅色卡压在上面。目标是彩色集中成一块，而不是每个设置项各一块。 */
+#gg-settings .gg-sub:first-child {
+    margin: 6px 0 0;
+    padding: 10px 12px 8px 13px;
+    border-radius: 10px 10px 0 0;
+    color: var(--gg-ink);
+    background: var(--gg-deep);
+}
+
+#gg-settings .gg-sub:first-child::before {
+    color: var(--gg-deep);
+    background: var(--gg-base);
+}
+
+#gg-settings .gg-sub:first-child::after {
+    background: none;
+}
+
 #gg-settings .gg-themes {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7px;
+    padding: 0 12px 12px;
+    border-radius: 0 0 10px 10px;
+    background: var(--gg-deep);
 }
 
 #gg-settings .gg-theme {
-    flex: 1 1 calc(50% - 3px);
+    flex: 1 1 calc(50% - 4px);
     display: flex;
     align-items: center;
-    gap: 6px;
-    min-height: 42px;
+    min-height: 34px;
     padding: 6px 10px;
-    border-radius: 4px;
-    border: 1px solid color-mix(in srgb, var(--gg-swatch-a, #c9a961) 42%, transparent);
-    background-color: var(--gg-swatch-bg, #241d13);
-    background-image: linear-gradient(135deg, var(--gg-swatch-bg, #241d13) 0%, var(--gg-swatch-bg, #241d13) 50%, var(--gg-swatch-a, #c9a961) 100%);
-    color: var(--gg-swatch-text, #f7f0dc);
+    border-radius: 8px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
+    font-weight: 500;
     letter-spacing: 0.02em;
-    cursor: pointer;
     text-align: left;
+    cursor: pointer;
     position: relative;
-    overflow: hidden;
-    transition: transform 0.14s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+    color: var(--gg-swatch-text, var(--gg-text));
+    background: var(--gg-swatch-bg, var(--gg-surface));
+    border: 1px solid var(--gg-swatch-edge, var(--gg-border));
+    transition: filter 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
 }
 
-#gg-settings .gg-theme[data-theme="trianon"] { --gg-swatch-bg: #241d13; --gg-swatch-a: #c9a961; --gg-swatch-text: #f7f0dc; --gg-swatch-ring: #e2cb92; }
-#gg-settings .gg-theme[data-theme="dusk"] { --gg-swatch-bg: #f8ccaa; --gg-swatch-a: #f2c1a3; --gg-swatch-text: #525871; --gg-swatch-ring: #857c91; }
-#gg-settings .gg-theme[data-theme="neon"] { --gg-swatch-bg: #212934; --gg-swatch-a: #f1444e; --gg-swatch-text: #ffae81; --gg-swatch-ring: #c9947a; }
-#gg-settings .gg-theme[data-theme="frost"] { --gg-swatch-bg: #f0ecdd; --gg-swatch-a: #8ba3c5; --gg-swatch-text: #02122f; --gg-swatch-ring: #495b7d; }
+/* 每张色卡用自己那套的浅底，只靠一颗彩色圆点和压深的同色字认自己；
+   只有「当前选中」那一张才吃满彩色实底——一屏里彩色实块始终只有一块。 */
+#gg-settings .gg-theme[data-theme="almond"]  { --gg-swatch-bg: #f3e8dc; --gg-swatch-text: #835a5a; --gg-swatch-edge: #e0cdc1; --gg-swatch-dot: #a37070; }
+#gg-settings .gg-theme[data-theme="cream"]   { --gg-swatch-bg: #fdf4e3; --gg-swatch-text: #63717a; --gg-swatch-edge: #e5e0d4; --gg-swatch-dot: #7c8d99; }
+#gg-settings .gg-theme[data-theme="haze"]    { --gg-swatch-bg: #e1e6e9; --gg-swatch-text: #824b4b; --gg-swatch-edge: #d5dade; --gg-swatch-dot: #a35e5e; }
+#gg-settings .gg-theme[data-theme="peach"]   { --gg-swatch-bg: #f6e3d7; --gg-swatch-text: #7a7e6a; --gg-swatch-edge: #e8d5c7; --gg-swatch-dot: #a3a88f; }
+#gg-settings .gg-theme[data-theme="ash"]     { --gg-swatch-bg: #efece6; --gg-swatch-text: #865c48; --gg-swatch-edge: #ded9d1; --gg-swatch-dot: #9e6c55; }
+#gg-settings .gg-theme[data-theme="pumpkin"] { --gg-swatch-bg: #f5e2c3; --gg-swatch-text: #64868d; --gg-swatch-edge: #e4d3b4; --gg-swatch-dot: #7da8b1; }
+#gg-settings .gg-theme[data-theme="butter"]  { --gg-swatch-bg: #edf0e2; --gg-swatch-text: #906e5f; --gg-swatch-edge: #dee2cf; --gg-swatch-dot: #b48a78; }
+#gg-settings .gg-theme[data-theme="lotus"]   { --gg-swatch-bg: #f5f2ee; --gg-swatch-text: #87818c; --gg-swatch-edge: #e2dfdd; --gg-swatch-dot: #a9a1b0; }
 
-#gg-settings .gg-theme:hover {
-    border-color: var(--gg-swatch-ring, #e2cb92);
-    transform: translateY(-1px);
-}
-
-#gg-settings .gg-theme:active {
-    transform: translateY(1px);
-}
-
-#gg-settings .gg-theme[aria-pressed="true"] {
-    border-color: var(--gg-swatch-ring, #e2cb92);
-    box-shadow: 0 0 0 1px var(--gg-swatch-ring, #e2cb92), 0 7px 18px rgba(0, 0, 0, 0.3);
-    transform: translateY(-1px);
-}
-
-#gg-settings .gg-theme[aria-pressed="true"]::after {
+/* 圆点：右上角一颗，颜色就是那一套的彩色中间调 */
+#gg-settings .gg-theme::after {
     content: "";
     position: absolute;
-    top: 5px;
-    right: 7px;
+    top: 8px;
+    right: 10px;
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--gg-swatch-ring, #e2cb92);
-    box-shadow: 0 0 8px var(--gg-swatch-ring, #e2cb92);
+    background: var(--gg-swatch-dot);
 }
 
-#gg-settings .gg-theme-dots {
-    display: none;
+#gg-settings .gg-theme:hover {
+    border-color: var(--gg-swatch-dot);
 }
 
-#gg-settings .gg-theme-dots i {
-    display: block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+#gg-settings .gg-theme:active {
+    transform: scale(0.99);
 }
+
+#gg-settings .gg-theme:focus-visible {
+    outline: 1px solid var(--gg-primary);
+    outline-offset: 2px;
+}
+
+/* 选中：这一张吃满彩色实底 + ink 字，圆点反过来用浅色 */
+#gg-settings .gg-theme[aria-pressed="true"] {
+    background: var(--gg-deep);
+    border-color: var(--gg-swatch-edge);
+    color: var(--gg-ink);
+    box-shadow:
+        0 0 0 2px var(--gg-base),
+        0 0 0 3px var(--gg-swatch-dot);
+}
+
+#gg-settings .gg-theme[aria-pressed="true"]::after {
+    background: var(--gg-base);
+}
+
+#gg-settings .gg-theme-dots { display: none; }
 
 #gg-settings .gg-theme-name {
     overflow: hidden;
@@ -554,40 +615,47 @@ body.gg-theme-frost {
     white-space: nowrap;
 }
 
+/* ---------- 设置行：不加底色，只用分隔线和留白组织 ---------- */
+
 #gg-settings .gg-check {
     display: flex;
     align-items: flex-start;
-    gap: 9px;
-    margin-bottom: 6px;
-    padding: 8px 10px 7px;
-    border-radius: 4px;
-    background: var(--gg-row, transparent);
-    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--gg-a2, #e2cb92) 54%, transparent);
+    gap: 11px;
+    margin: 0;
+    padding: 11px 2px;
+    border-bottom: 1px solid var(--gg-border);
+    border-radius: 0;
+    background: none;
     font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--gg-text, #e8e8e8);
+    line-height: 1.55;
+    color: var(--gg-text);
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease;
 }
 
 #gg-settings .gg-check:hover {
-    background: color-mix(in srgb, var(--gg-row) 82%, var(--gg-a2, #e2cb92));
+    background: var(--gg-hover);
 }
 
+#gg-settings .gg-check:last-child {
+    border-bottom: 0;
+}
+
+/* 开关：固定 34×19 胶囊 */
 #gg-settings .gg-check input[type="checkbox"] {
     -webkit-appearance: none;
     appearance: none;
     flex: 0 0 auto;
     width: 34px;
-    height: 18px;
+    height: 19px;
     margin: 1px 0 0;
     padding: 0;
     border-radius: 999px;
-    border: 1px solid var(--gg-line);
-    background: var(--gg-surface2);
+    border: 1px solid var(--gg-border);
+    background: var(--gg-input);
     position: relative;
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 #gg-settings .gg-check input[type="checkbox"]::after {
@@ -595,27 +663,38 @@ body.gg-theme-frost {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 12px;
-    height: 12px;
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
-    background: var(--gg-dim, #8a7248);
-    transition: left 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    background: var(--gg-muted);
+    transition: left 0.18s ease, background 0.18s ease;
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked {
-    background: linear-gradient(135deg, var(--gg-a, #c9a961), var(--gg-a2, #e2cb92));
-    border-color: var(--gg-a2, #e2cb92);
+    background: var(--gg-deep);
+    border-color: color-mix(in srgb, var(--gg-deep) 78%, #1e1a18);
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked::after {
     left: 18px;
-    background: var(--gg-on, #261f16);
-    box-shadow: 0 0 7px var(--gg-halo);
+    background: var(--gg-ink);
 }
 
 #gg-settings .gg-check input[type="checkbox"]:focus-visible {
-    outline: 1px solid var(--gg-a2, #e2cb92);
+    outline: 1px solid var(--gg-primary);
     outline-offset: 2px;
+}
+
+#gg-settings .gg-check input[type="checkbox"]:disabled {
+    opacity: 1;
+    border-color: var(--gg-border);
+    background: color-mix(in srgb, var(--gg-muted) 30%, var(--gg-input));
+    cursor: not-allowed;
+}
+
+#gg-settings .gg-check input[type="checkbox"]:disabled::after {
+    background: var(--gg-card);
+    opacity: 0.5;
 }
 
 #gg-settings .gg-inline span {
@@ -623,75 +702,87 @@ body.gg-theme-frost {
     font-size: 12.5px;
 }
 
+/* 数字框 */
 #gg-settings .gg-num {
     width: 62px;
     min-width: 62px;
-    padding: 4px 6px;
+    min-height: 28px;
+    padding: 4px 8px;
     text-align: center;
-    border-radius: 3px;
-    border: 1px solid color-mix(in srgb, var(--gg-a, #c9a961) 48%, transparent);
-    background: var(--gg-surface, transparent);
-    color: inherit;
+    border-radius: 6px;
+    border: 1px solid var(--gg-border);
+    background: var(--gg-input);
+    color: var(--gg-text);
     font-family: inherit;
     font-size: 12.5px;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+#gg-settings .gg-num:hover {
+    border-color: var(--gg-secondary);
 }
 
 #gg-settings .gg-num:focus {
-    border-color: var(--gg-a, #c9a961);
+    border-color: var(--gg-primary);
+    box-shadow: 0 0 0 3px var(--gg-accent-12);
     outline: none;
 }
 
 #gg-settings .gg-prompt {
     width: 100%;
-    min-height: 68px;
-    padding: 8px 9px;
+    min-height: 76px;
+    padding: 11px 12px;
     resize: vertical;
-    border-radius: 3px;
-    border: 1px solid var(--gg-line);
-    background: transparent;
-    color: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--gg-border);
+    background: var(--gg-input);
+    color: var(--gg-text);
     font-family: inherit;
     font-size: 12px;
-    line-height: 1.65;
+    line-height: 1.7;
     box-sizing: border-box;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 #gg-settings .gg-prompt:focus {
-    border-color: var(--gg-a, #c9a961);
+    border-color: var(--gg-primary);
+    box-shadow: 0 0 0 3px var(--gg-accent-12);
     outline: none;
 }
+
+/* ---------- 行容器、提示、计数 ---------- */
 
 #gg-settings .gg-row {
     display: flex;
     justify-content: flex-end;
-    gap: 6px;
-    margin: 7px 0 4px;
+    gap: 8px;
+    margin: 10px 0 0;
 }
 
 #gg-settings .gg-hint {
-    margin: 8px 0 0;
+    margin: 10px 0 0;
     font-size: 11px;
-    line-height: 1.6;
-    opacity: 0.62;
+    line-height: 1.65;
+    color: var(--gg-muted);
 }
 
 #gg-settings .gg-count {
     font-size: 11px;
-    letter-spacing: 0.08em;
-    color: var(--gg-a, #c9a961);
-    opacity: 1;
+    letter-spacing: 0.06em;
+    color: var(--gg-primary);
 }
+
+/* ---------- 列表 ---------- */
 
 #gg-settings .gg-snap-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    max-height: 210px;
+    gap: 7px;
+    max-height: 220px;
     overflow: auto;
 }
 
-/* 兼容状态是「说明性清单」，不是可滚动列表：本机装十几二十个扩展时
-   5~6 条全摊开更好看，面板本身还能滚，别在这里再套一层小滚动条 */
+/* 兼容状态是说明性清单，全摊开更好看，不在这里再套滚动条 */
 #gg-settings #gg-compat-list {
     max-height: none;
     overflow: visible;
@@ -699,19 +790,18 @@ body.gg-theme-frost {
 
 #gg-settings .gg-snap-empty {
     font-size: 11.5px;
-    letter-spacing: 0.04em;
-    opacity: 0.5;
+    letter-spacing: 0.03em;
+    color: var(--gg-muted);
 }
 
 #gg-settings .gg-snap-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 9px;
-    border-radius: 3px;
-    background: linear-gradient(160deg, color-mix(in srgb, var(--gg-dim) 16%, transparent), color-mix(in srgb, var(--gg-surface2) 24%, transparent));
-    border: 1px solid var(--gg-line-soft);
-    border-left: 2px solid var(--gg-a);
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--gg-surface);
+    border: 1px solid var(--gg-border);
 }
 
 #gg-settings .gg-snap-info {
@@ -722,39 +812,27 @@ body.gg-theme-frost {
 #gg-settings .gg-snap-title {
     font-size: 12px;
     letter-spacing: 0.02em;
+    color: var(--gg-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 #gg-settings .gg-snap-sub {
+    margin-top: 3px;
     font-size: 11px;
     letter-spacing: 0.02em;
-    opacity: 0.58;
-}
-
-#gg-settings .gg-btn.gg-mini {
-    flex: 0 0 auto;
-    min-width: 0;
-    min-height: 30px;
-    padding: 5px 10px;
-    font-size: 11.5px;
-    letter-spacing: 0.02em;
-}
-
-#gg-settings .gg-btn.gg-full {
-    width: 100%;
-    margin-top: 9px;
+    color: var(--gg-text-2);
 }
 
 #gg-settings .gg-ver {
-    margin-top: 12px;
-    padding-top: 9px;
-    border-top: 1px solid var(--gg-line-soft);
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--gg-deep) 42%, transparent);
     text-align: center;
     font-size: 10.5px;
     letter-spacing: 0.1em;
-    opacity: 0.5;
+    color: var(--gg-muted);
 }
 
 .gg-hidden {
@@ -770,7 +848,7 @@ body.gg-theme-frost {
         bottom: calc(100dvh - 46px);
         font-size: 11px;
         max-width: 84vw;
-        padding: 5px 11px;
+        padding: 6px 12px;
     }
 
     #gg-panel {
@@ -782,14 +860,13 @@ body.gg-theme-frost {
     }
 
     #gg-panel .gg-card {
-        padding: 17px 11px 11px;
-        gap: 8px;
+        padding: 16px 14px 13px;
+        gap: 11px;
     }
 
     #gg-panel .gg-preview {
         max-height: 30dvh;
-        font-size: 12.5px;
-        line-height: 1.7;
+        min-height: 110px;
     }
 
     #gg-panel .gg-actions .gg-btn {
@@ -797,7 +874,7 @@ body.gg-theme-frost {
         font-size: 13px;
     }
 
-    /* 手机上「接回」「续写」各占一整行，拇指好按；其余按钮两两一排 */
+    /* 手机上「接回」「续写」各占一整行，拇指好按；其余两两一排 */
     #gg-panel .gg-actions .gg-primary,
     #gg-panel #gg-btn-recover-write {
         flex: 1 1 100%;
@@ -808,18 +885,22 @@ body.gg-theme-frost {
     }
 
     #gg-panel .gg-icon-btn {
-        min-width: 44px;
-        min-height: 44px;
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    #gg-settings .gg-sheet {
+        padding: 17px 14px 14px;
     }
 
     #gg-settings .gg-check {
+        padding: 13px 2px;
         font-size: 13px;
-        min-height: 32px;
     }
 
     #gg-settings .gg-theme {
         min-height: 46px;
-        font-size: 12.5px;
+        font-size: 12px;
     }
 
     #gg-settings .gg-num {

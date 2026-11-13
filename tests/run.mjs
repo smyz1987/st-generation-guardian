@@ -516,21 +516,21 @@ async function scenarioSettingsPanel() {
     eq('面板里显示版本号', document.getElementById('gg-ver').textContent, SRC_VERSION);
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
-    eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
-    ok('默认选中特里亚农', document.querySelector('#gg-themes .gg-theme[data-theme="trianon"]').getAttribute('aria-pressed') === 'true');
-    ok('body 上挂了默认主题 class', document.body.classList.contains('gg-theme-trianon'));
-    ok('四套主题名都在（特里亚农/雪暮/霓虹街/霜岸）',
-        ['trianon', 'dusk', 'neon', 'frost'].every((key) => document.querySelector(`#gg-themes .gg-theme[data-theme="${key}"] .gg-theme-name`).textContent.length >= 2));
+    eq('主题选择器有八套', document.querySelectorAll('#gg-themes .gg-theme').length, 8);
+    ok('默认选中杏仁白', document.querySelector('#gg-themes .gg-theme[data-theme="almond"]').getAttribute('aria-pressed') === 'true');
+    ok('body 上挂了默认主题 class', document.body.classList.contains('gg-theme-almond'));
+    ok('八套主题名都在（杏仁白/暖奶油/雾蓝灰/桃奶茶/白茶灰/南瓜米/奶油绿/莲子白）',
+        ['almond', 'cream', 'haze', 'peach', 'ash', 'pumpkin', 'butter', 'lotus'].every((key) => document.querySelector(`#gg-themes .gg-theme[data-theme="${key}"] .gg-theme-name`).textContent.length >= 2));
 
-    document.querySelector('#gg-themes .gg-theme[data-theme="neon"]').click();
-    ok('点霓虹街切过去', document.body.classList.contains('gg-theme-neon'));
-    ok('切过去后旧主题 class 被摘掉', !document.body.classList.contains('gg-theme-trianon'));
-    ok('选中态跟着变', document.querySelector('#gg-themes .gg-theme[data-theme="neon"]').getAttribute('aria-pressed') === 'true');
-    eq('主题写进设置', extensionSettingsStub['generation-guardian'].theme, 'neon');
+    document.querySelector('#gg-themes .gg-theme[data-theme="haze"]').click();
+    ok('点雾蓝灰切过去', document.body.classList.contains('gg-theme-haze'));
+    ok('切过去后旧主题 class 被摘掉', !document.body.classList.contains('gg-theme-almond'));
+    ok('选中态跟着变', document.querySelector('#gg-themes .gg-theme[data-theme="haze"]').getAttribute('aria-pressed') === 'true');
+    eq('主题写进设置', extensionSettingsStub['generation-guardian'].theme, 'haze');
 
-    document.querySelector('#gg-themes .gg-theme[data-theme="frost"]').click();
-    ok('再切霜岸也生效', document.body.classList.contains('gg-theme-frost'));
-    eq('主题写进设置（第二次）', extensionSettingsStub['generation-guardian'].theme, 'frost');
+    document.querySelector('#gg-themes .gg-theme[data-theme="lotus"]').click();
+    ok('再切莲子白也生效', document.body.classList.contains('gg-theme-lotus'));
+    eq('主题写进设置（第二次）', extensionSettingsStub['generation-guardian'].theme, 'lotus');
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '清单里的草稿内容');
@@ -1321,7 +1321,7 @@ async function scenarioHugeDraft() {
     ok('正文存的是原始 markdown / HTML，没有被转义成纯文本',
         String(landed.mes) === big);
     ok('主题只往 body 挂自己那一个 theme class，不会多挂别的开关',
-        document.body.classList.contains('gg-theme-trianon')
+        document.body.classList.contains('gg-theme-almond')
         && !document.body.classList.contains('gg-light-surface'), document.body.className);
 
     delete extensionSettingsStub['generation-guardian'];

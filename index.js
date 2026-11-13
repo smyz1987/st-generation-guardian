@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.9';
+const VERSION = '1.3.10';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -30,15 +30,20 @@ const FLUSH_INTERVAL_MS = 800;
 // 自动把「生成中」状态解开 —— 否则会一直拦着扩展操作、一直拦刷新，反而变成干扰。
 const GENERATION_STALE_MS = 5 * 60 * 1000;
 
-/* 四套主题。前三套按用户给的三张色卡配色，trianon 是原来的金线版本。
-   色号即图片上的取值，强调色 / 次色 / 深色用于边框、渐变和预览色点。 */
+/* 八套主题。每套就是「一个极浅的中性底 + 一个中低饱和的彩色中间调」，
+   色号逐字取自用户那份网页配色的八组：底在浅色一支，其余角色都从这两支派生。
+   键名按底色叫，按钮上显示的就是底色名。 */
 const THEMES = {
-    trianon: { label: '特里亚农', en: 'Trianon', swatches: ['#c9a961', '#e2cb92', '#7a5f2b'] },
-    dusk: { label: '雪暮', en: 'Dusk Snow', swatches: ['#cd9fa0', '#f2c1a3', '#525871'] },
-    neon: { label: '霓虹街', en: 'Neon Street', swatches: ['#f1444e', '#ffae81', '#212934'] },
-    frost: { label: '霜岸', en: 'Frost Bank', swatches: ['#8ba3c5', '#f0ecdd', '#23354d'] },
+    almond: { label: '杏仁白', en: 'Almond', swatches: ['#f3e8dc', '#a37070'] },
+    cream: { label: '暖奶油', en: 'Cream', swatches: ['#fdf4e3', '#7c8d99'] },
+    haze: { label: '雾蓝灰', en: 'Blue Haze', swatches: ['#e1e6e9', '#a35e5e'] },
+    peach: { label: '桃奶茶', en: 'Peach Tea', swatches: ['#f6e3d7', '#a3a88f'] },
+    ash: { label: '白茶灰', en: 'White Tea', swatches: ['#efece6', '#9e6c55'] },
+    pumpkin: { label: '南瓜米', en: 'Pumpkin', swatches: ['#f5e2c3', '#7da8b1'] },
+    butter: { label: '奶油绿', en: 'Butter', swatches: ['#edf0e2', '#b48a78'] },
+    lotus: { label: '莲子白', en: 'Lotus', swatches: ['#f5f2ee', '#a9a1b0'] },
 };
-const DEFAULT_THEME = 'trianon';
+const DEFAULT_THEME = 'almond';
 const TAIL_HEAD_LEN = 60;
 // 单条草稿上限，防 localStorage 配额被打满后连新草稿都写不进去
 // （1 亿字符纯粹是「防呆」，正常一轮两万字都摸不到它）
