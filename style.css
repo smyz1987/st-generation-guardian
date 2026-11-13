@@ -347,6 +347,11 @@ body.gg-theme-frost {
 
 #gg-settings {
     margin: 10px 0;
+    color: var(--gg-text, #e8e8e8);
+}
+
+#gg-settings .gg-sheet {
+    color: var(--gg-text, #e8e8e8);
 }
 
 #gg-settings .inline-drawer-header {
@@ -380,11 +385,13 @@ body.gg-theme-frost {
     position: relative;
     margin-top: 8px;
     padding: 16px 12px 12px;
-    border-radius: 4px;
-    background-color: var(--gg-wash);
+    border-radius: 5px;
+    background-color: var(--gg-surface, #241d13);
     border: 1px solid var(--gg-line);
-    box-shadow: inset 0 0 0 1px var(--gg-line-soft);
+    box-shadow: inset 0 0 0 1px var(--gg-line-soft), 0 12px 30px rgba(0, 0, 0, 0.28);
     background-image:
+        linear-gradient(180deg, color-mix(in srgb, var(--gg-a2, #e2cb92) 17%, transparent), transparent 46%),
+        linear-gradient(158deg, color-mix(in srgb, var(--gg-a, #c9a961) 21%, transparent), transparent 62%),
         linear-gradient(var(--gg-line), var(--gg-line)),
         linear-gradient(var(--gg-line), var(--gg-line)),
         linear-gradient(var(--gg-line), var(--gg-line)),
@@ -394,8 +401,9 @@ body.gg-theme-frost {
         linear-gradient(var(--gg-line), var(--gg-line)),
         linear-gradient(var(--gg-line), var(--gg-line));
     background-repeat: no-repeat;
-    background-size: 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
+    background-size: 100% 100%, 100% 100%, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
     background-position:
+        0 0, 0 0,
         left 5px top 5px, left 5px top 5px,
         right 5px top 5px, right 5px top 5px,
         left 5px bottom 5px, left 5px bottom 5px,
@@ -414,6 +422,10 @@ body.gg-theme-frost {
     pointer-events: none;
 }
 
+#gg-settings {
+    counter-reset: ggsec;
+}
+
 #gg-settings .gg-sub {
     display: flex;
     align-items: center;
@@ -429,11 +441,14 @@ body.gg-theme-frost {
 }
 
 #gg-settings .gg-sub::before {
-    content: "";
-    width: 2px;
-    height: 9px;
-    background: linear-gradient(180deg, var(--gg-a2, #e2cb92), var(--gg-a, #c9a961));
-    box-shadow: 0 0 6px var(--gg-halo);
+    counter-increment: ggsec;
+    content: counter(ggsec, decimal-leading-zero);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--gg-a2, #e2cb92);
+    padding-right: 1px;
+    border-right: 1px solid var(--gg-line-soft);
     flex: 0 0 auto;
 }
 
@@ -465,35 +480,58 @@ body.gg-theme-frost {
     flex: 1 1 calc(50% - 3px);
     display: flex;
     align-items: center;
-    gap: 7px;
-    min-height: 32px;
-    padding: 5px 8px;
-    border-radius: 3px;
-    border: 1px solid var(--gg-line-soft);
-    background: transparent;
-    color: inherit;
+    gap: 6px;
+    min-height: 42px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--gg-swatch-a, #c9a961) 42%, transparent);
+    background-color: var(--gg-swatch-bg, #241d13);
+    background-image: linear-gradient(135deg, var(--gg-swatch-bg, #241d13) 0%, var(--gg-swatch-bg, #241d13) 50%, var(--gg-swatch-a, #c9a961) 100%);
+    color: var(--gg-swatch-text, #f7f0dc);
     font-family: inherit;
     font-size: 12px;
+    letter-spacing: 0.02em;
     cursor: pointer;
     text-align: left;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.14s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 
+#gg-settings .gg-theme[data-theme="trianon"] { --gg-swatch-bg: #241d13; --gg-swatch-a: #c9a961; --gg-swatch-text: #f7f0dc; --gg-swatch-ring: #e2cb92; }
+#gg-settings .gg-theme[data-theme="dusk"] { --gg-swatch-bg: #525871; --gg-swatch-a: #cd9fa0; --gg-swatch-text: #f8ccaa; --gg-swatch-ring: #f2c1a3; }
+#gg-settings .gg-theme[data-theme="neon"] { --gg-swatch-bg: #212934; --gg-swatch-a: #f1444e; --gg-swatch-text: #ffae81; --gg-swatch-ring: #c9947a; }
+#gg-settings .gg-theme[data-theme="frost"] { --gg-swatch-bg: #f0ecdd; --gg-swatch-a: #8ba3c5; --gg-swatch-text: #02122f; --gg-swatch-ring: #23354d; }
+
 #gg-settings .gg-theme:hover {
-    border-color: var(--gg-a, #c9a961);
-    background: var(--gg-wash);
+    border-color: var(--gg-swatch-ring, #e2cb92);
+    transform: translateY(-1px);
+}
+
+#gg-settings .gg-theme:active {
+    transform: translateY(1px);
 }
 
 #gg-settings .gg-theme[aria-pressed="true"] {
-    border-color: var(--gg-a, #c9a961);
-    box-shadow: inset 0 0 0 1px var(--gg-a, #c9a961);
-    background: var(--gg-wash-strong);
+    border-color: var(--gg-swatch-ring, #e2cb92);
+    box-shadow: 0 0 0 1px var(--gg-swatch-ring, #e2cb92), 0 7px 18px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
+}
+
+#gg-settings .gg-theme[aria-pressed="true"]::after {
+    content: "";
+    position: absolute;
+    top: 5px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--gg-swatch-ring, #e2cb92);
+    box-shadow: 0 0 8px var(--gg-swatch-ring, #e2cb92);
 }
 
 #gg-settings .gg-theme-dots {
-    display: flex;
-    gap: 3px;
-    flex: 0 0 auto;
+    display: none;
 }
 
 #gg-settings .gg-theme-dots i {
@@ -513,22 +551,57 @@ body.gg-theme-frost {
 
 #gg-settings .gg-check {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 7px;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
     font-size: 12.5px;
-    line-height: 1.5;
+    line-height: 1.45;
+    color: var(--gg-text, #e8e8e8);
     cursor: pointer;
 }
 
 #gg-settings .gg-check input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
+    -webkit-appearance: none;
+    appearance: none;
     flex: 0 0 auto;
-    margin: 0;
+    width: 34px;
+    height: 18px;
+    margin: 1px 0 0;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--gg-line);
+    background: var(--gg-surface2);
+    position: relative;
     cursor: pointer;
-    accent-color: var(--gg-a, #c9a961);
-    color: var(--gg-text, #e8e8e8);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+#gg-settings .gg-check input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gg-dim, #8a7248);
+    transition: left 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+#gg-settings .gg-check input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, var(--gg-a, #c9a961), var(--gg-a2, #e2cb92));
+    border-color: var(--gg-a2, #e2cb92);
+}
+
+#gg-settings .gg-check input[type="checkbox"]:checked::after {
+    left: 18px;
+    background: var(--gg-on, #261f16);
+    box-shadow: 0 0 7px var(--gg-halo);
+}
+
+#gg-settings .gg-check input[type="checkbox"]:focus-visible {
+    outline: 1px solid var(--gg-a2, #e2cb92);
+    outline-offset: 2px;
 }
 
 #gg-settings .gg-inline span {
@@ -731,7 +804,7 @@ body.gg-theme-frost {
     }
 
     #gg-settings .gg-theme {
-        min-height: 40px;
+        min-height: 46px;
         font-size: 12.5px;
     }
 

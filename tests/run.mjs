@@ -17,6 +17,9 @@ const repoRoot = path.join(__dirname, '..');
 const sandboxExtension = path.join(__dirname, 'sandbox', 'scripts', 'extensions', 'third-party', 'gen', 'index.js');
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
+/** 版本号从源码里读，升级时不用再改一遍测试 */
+const SRC_VERSION = (fs.readFileSync(path.join(repoRoot, 'index.js'), 'utf8').match(/VERSION = '([^']+)'/) || [])[1];
+
 /* ------------------------------------------------------------------ *
  * 断言
  * ------------------------------------------------------------------ */
@@ -316,7 +319,8 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.8 版本号', window.GenerationGuardian?.version === '1.3.8');
+    ok('调试入口暴露了版本号', window.GenerationGuardian?.version === SRC_VERSION,
+        `${window.GenerationGuardian?.version} vs ${SRC_VERSION}`);
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -509,7 +513,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.8');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, SRC_VERSION);
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
