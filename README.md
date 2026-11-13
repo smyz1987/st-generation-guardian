@@ -208,7 +208,7 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 | 接回 | `chat.push()` + `addOneMessage()` + `saveChat()`，不调用生成；失败时回滚已插入的消息 |
 | 自动补回 | 重载 / 打断后 `scan` 到可恢复草稿就自动走一遍接回（默认开，可关），成功后卡片切「已自动补回」并记住那条的 index 供撤销 |
 | 续写 | 写进 `#send_textarea` 再 `generate('normal')`，等价你手打发送；失败时把指令填回输入框 |
-| 拦截刷新 | `beforeunload` + 捕获阶段拦 `.extensions_info` 里真会 `location.reload()` 的 4 类按钮（启用 / 禁用 / 删除 / 清理）；按住 Shift 点 = 这一次放行（先落盘再让它去刷） |
+| 拦截刷新 | `beforeunload` + 捕获阶段拦两类会刷新的点击：① `.extensions_info` 里真会 `location.reload()` 的 4 类按钮（启用 / 禁用 / 删除 / 清理）；② 别的扩展「发现新版本」弹窗里的「更新」按钮（点完它自己 1 秒就刷）。按住 Shift 点 = 这一次放行（先落盘再让它去刷） |
 | 不拦什么 | 「更新 / 换分支 / 移动」只改文件、酒馆源码里也不 reload，所以一概放行 —— 点更新不会变成「点了没反应」 |
 | 存储兜底 | localStorage 写满时逐条驱逐旧草稿，保证当前这条一定写得进去 |
 | 幂等 | 恢复中加锁 + 二次校验草稿是否还存在，双击按钮不会插两条消息 |
@@ -224,7 +224,7 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 | 生成完了，扩展还在拦扩展按钮 / 还在拦刷新 | 「生成中」不只看一个 flag，还要看在 5 分钟内确实有新字进来；没有就当场 `releaseGeneration()` 解锁，连徽标一起收掉 |
 | 结束事件丢了，状态永远卡在「生成中」 | 卡住看门狗到点后复核，超过 5 分钟直接收尾，草稿留着，状态放开 |
 | 我自己的回调抛异常，把酒馆的事件链炸了 | 五个事件回调全部包在 try/catch 里，出错只打一条 `console.warn`，事件照常传给后面的监听者 |
-| 点别的地方被误拦 | 捕获阶段的监听只认 `.extensions_info .extension_block` 下那 4 类选择器，其余点击一律原样放行（不 `stopPropagation`、不 `preventDefault`） |
+| 点别的地方被误拦 | 捕获阶段的监听只认 `.extensions_info .extension_block` 下那 4 类选择器，加上「弹窗里 + 写着自动刷新 + 文字是更新」的按钮；其余点击一律原样放行（不 `stopPropagation`、不 `preventDefault`） |
 | 和别的扩展打架 | **一个全局函数都不包装**：不碰 `fetch`、不碰 `addOneMessage` / `saveChat` / `generate`、不改 `location`，只用公开的 `getContext()` 读数据 |
 | 挡住正常聊天请求 | 根本不参与请求层，`/api/backends/chat-completions/generate` 这类正事请求完全不受影响（测试里专门断言 `window.fetch` 没被换掉） |
 | 样式串味 | 颜色和字体只在 `#gg-badge` / `#gg-panel` / `#gg-settings` 里生效，`body` 上只加 `gg-theme-*` 四个 class，不碰 `.mes`、`.chat` 这些酒馆自己的类 |
@@ -246,7 +246,7 @@ tests/          本地测试沙盒
 
 ### 跑测试
 
-`tests/run.mjs` 用 jsdom 造了一个假的酒馆窗口，把扩展源码按真实相对路径 import 进去，跑 20 个场景：
+`tests/run.mjs` 用 jsdom 造了一个假的酒馆窗口，把扩展源码按真实相对路径 import 进去，跑 21 个场景：
 
 ```bash
 npm install
@@ -255,7 +255,25 @@ npm test
 
 覆盖：流式中断→重载→自动补回聊天（含撤销）、接回后不发请求、「续写」只发一次普通请求、重复点击不重复发、关掉直接发送时只填不发、continue 类型恢复到原消息、swipe 只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、别的聊天的草稿不弹卡片、设置面板与草稿清单、四套主题切换、扩展操作护栏（只拦真会刷新的四类、更新/换分支/移动放行、不包装 `fetch`）、Shift 强制放行、生成状态卡死 5 分钟后自动解锁、半截消息补全、替我说话正常完成不误留草稿、错过开始事件也能存、重复开始事件不清空、存储写满驱逐旧草稿、续写发送失败回填指令、保存聊天失败不丢消息、别的扩展突然刷新时 `beforeunload` 那一刻草稿已是最新。
 
-当前：**166 项断言全通过**（21 个场景）。
+当前：**169 项断言全通过**（21 个场景）。
+
+### 真机验证记录（1.3.5）
+
+单元测试是假的酒馆，所以 1.3.5 另外在**真实酒馆 1.19.0 + 本机 48 个扩展全开**的环境里跑了一遍。做法是搭了个本地假 OpenAI 后端（`mock-openai.js`，SSE 每 350ms 吐一段），只把 `settings.json` 的 `custom_url` 临时指过去，原件先字节级备份、测完覆盖还原；测试用的聊天文件也先备份后还原；扩展只复制到 `third-party` 下一个新目录，测完删除。
+
+实测结果：
+
+| 项 | 结果 |
+|---|---|
+| 干净重载后扩展自动加载 | ✅（`loading_order` 从 100 改 5 之前是 ❌，见上文） |
+| 面板挂进设置区、版本号正确 | ✅ |
+| 真实 `STREAM_TOKEN_RECEIVED` → 草稿落进 localStorage（带聊天锚点指纹） | ✅ 424 字节，徽标显示「已保存 82 字 · 别刷新」 |
+| 真的刷新页面后草稿还在 | ✅ 424 字节原样保留 |
+| 恢复卡片弹出（`#gg-panel` 显示、四个按钮可点） | ✅ |
+| 点「接回」把草稿原样写成一正式一轮 | ✅ `mes 2 → 3`，最后一条是 AI 消息，toast「已接回聊天」 |
+| 聊天末尾多出一条 user 消息时**不**自动补回（保守判定） | ✅ 宁可不补也不写错位置 |
+| 生成 45 秒没新字 → 自动解锁「生成中」并保住草稿 | ✅ |
+| 发现「柏宝箱发现新版本…更新完成后会自动刷新页面」弹窗 | ✅ 这就是实际事故来源，1.3.5 起生成中会拦它的「更新」 |
 
 ---
 
@@ -301,22 +319,54 @@ git config user.email "你的邮箱"
 - 单条草稿超过 100 万字会截断保留头尾，卡片上会标「过长已截断」。
 - 依赖 `STREAM_TOKEN_RECEIVED` 事件，低于 1.12 的旧版本可能没有。
 - 同一浏览器开两个酒馆标签同时生成，两条草稿可能互相覆盖（同时只会有一个标签在生成）。
-- **浏览器不允许改写 `location.reload`**（HTML 规范里 Location 的属性是 Unforgeable），所以「把刷新延后」这件事做不到。能拦的是「发起刷新的那一跳」：那 4 类 UI 按钮。如果某个扩展是自己直接调 `location.reload()`，页面照样会刷 —— 这时候靠的是草稿已落盘（`beforeunload` 那一刻强制再写一次）+ 回来自动补回。
-- 生成中按下那 4 类按钮会被拦；更新 / 换分支 / 移动不拦（它们不会 reload），所以**不会**让扩展更新变成「点了没反应」。
+- **浏览器不允许改写 `location.reload`**（HTML 规范里 Location 的属性是 Unforgeable），所以「把刷新延后」这件事做不到。能拦的是「发起刷新的那一跳」：那 4 类 UI 按钮 + 别的扩展更新弹窗里的「更新」。如果某个扩展是自己直接调 `location.reload()`（本机至少 10 个扩展会这样），页面照样会刷 —— 这时候靠的是草稿已落盘（`beforeunload` 那一刻强制再写一次）+ 回来自动补回。
+- 生成中按下那 4 类按钮、以及扩展更新弹窗的「更新」会被拦；扩展管理面板里的「更新 / 换分支 / 移动」不拦（它们不会 reload），所以**不会**让扩展更新变成「点了没反应」。
 
-## 和本机这 7 个第三方扩展的关系
+## 和本机装着的扩展的关系
 
-逐个读过源码（`public/scripts/extensions/third-party/<name>`），结论如下：
+本机装在两处：`public/scripts/extensions/third-party`（7 个）和 `data/default-user/extensions`（41 个）。
+逐个扫过源码（`location.reload()` / `location.replace()` / `window.fetch =` / `Object.defineProperty(window, …)` / `stopGeneration()` 五类模式，164 处命中），分两类说。
 
-| 扩展 | 会打断生成的动作 | 本扩展怎么处理 |
+### 会自己刷新页面的（拿不到它们的定时器，只能靠「刷之前先存好」）
+
+| 扩展 | 触发方式 | 本扩展怎么处理 |
 |---|---|---|
-| **SillyTavern-Extension-Hot-Reload 1.5.5** | 更新后走 `location.replace()` 无缝重启；但它在生成中会把重启**延后**到 `GENERATION_ENDED` / `GENERATION_STOPPED`（`index.js:785-807`），默认「不刷新」模式下更新根本不重启 | 它自己就能扛，我们**不插手**：不拦更新按钮、不拦它的请求。万一它的 `isGenerating()` 判断失手，靠草稿 + 自动补回兜住 |
-| **claude-web** | 切布局 / 改 UI 样式 / 点它自己的「更新后重载」按钮 → `window.location.reload()`（`index.js:371/8446`、`emergency.js` 多处）；**它也包装了 `window.fetch`** | 都是她主动点设置才会触发，拦不到也不需要拦；因为**我们不包装 `fetch`**，和它的钩子零冲突。真刷了也是草稿 + 自动补回 |
-| **story-oracle** | 「一键更新」成功后 5 秒自动 `location.reload()`（`index.js:41779`，toast 可取消）；**也包装了 `window.fetch`**，还 `Object.defineProperty(window,'SillyTavern')` | 同上：不碰 `fetch` 就不打架；5 秒窗口足够草稿写盘，回来自动补回 |
-| **st-kimi-reasoning-injector** | 流式中会**主动 `stopGeneration()`** 截断（这是它的功能）；`index.js:4325/4330` 有 reload；**也包装了 `window.fetch`** | 被它截断时走 `GENERATION_STOPPED` 分支：草稿留住 + 自动补回；它若已把消息写好，锚点校验会发现「聊天已经变了」而不再重复插入 |
-| **Extension-TopInfoBar** | 只画顶栏，没有 reload / 没包装全局 | 无冲突 |
-| **SillyTavern-Timelines** | 只做时间线面板，没有 reload / 没包装全局 | 无冲突 |
-| **Extension-Silence** | 只做静音 / 隐藏，没有 reload / 没包装全局 | 无冲突 |
+| **ST-BaiBai-Tools 柏宝箱** | `updateCheck.js` 里 `setTimeout(() => location.reload(), 1000)`：检测到插件更新、你点「更新」后 **1 秒**就刷 | 生成中拦下那个「更新」按钮（见下）；真刷了也是草稿已落盘 + 回来自动补回 |
+| **SillyTavern-Mobile-Resize-Guard** | 和柏宝箱同一套代码，同样 `updateCheck.js` 1 秒 | 同上 |
+| **SillyTavern-Self-Check** | 自检完 `index.js` 里 `setTimeout(() => window.location.reload(), 900)` | 0.9 秒够 `flushNow()` 写完，回来补回 |
+| **SillyTavern-Horae** | 两处 `setTimeout(() => location.reload(), 800)`；还会临时包一层 `window.fetch`，某些响应里调 `stopGeneration()` | 不碰 `fetch` 就不打架；被它 stop 的走「被中断」分支，草稿留住 |
+| **JS-Slash-Runner 酒馆助手** | `update.ts` 里 `setTimeout(() => location.reload(), 3000)`；重定义 `window.parent/top/SillyTavern/Mvu`，包 `window.fetch` | 我们不碰这些全局，零冲突；3 秒窗口足够落盘 |
+| **st-persona-weaver 人设编织** | `index.js` 里 `setTimeout(() => window.location.reload(), 1500)` | 1.5 秒足够 |
+| **titania-theater** | `index.js` 里 `setTimeout(() => location.reload(), 500)` / 另有一处直接 reload | 0.5 秒偏紧，靠 `beforeunload` 那次强制落盘兜住 |
+| **st-theater** | `theater-update.js` 里 `window.location.reload()` | 靠 `beforeunload` 落盘 |
+| **chajian** | `index.js` 里 `setTimeout(() => window.location.reload(), 500)` | 同上 |
+| **QR** | `settings.js` 里 `setTimeout(() => location.reload(), 2000)` | 2 秒足够 |
+| **SillyTavern-TypingIndicatorThemes** | 切主题时 `location.reload()` | 她主动切，刷之前已落盘 |
+| **claude-web** | 切布局 / 改 UI / 点它的重载按钮 → 多处 `location.reload()`，还包装 `window.fetch` | 拦不到也不需要拦；不包装 `fetch` → 零冲突 |
+| **story-oracle** | 「一键更新」成功后 5 秒 `location.reload()`（toast 可取消），还包装 `fetch`、重定义 `window.SillyTavern` | 5 秒窗口足够；不碰这些全局 |
+| **SillyTavern-Extension-Hot-Reload** | 走 `location.replace()` 无缝重启，但生成中会**自己延后**到 `GENERATION_ENDED` / `GENERATION_STOPPED` | 它自己就能扛，我们**不插手** |
+
+### 不刷新、但需要知道它们存在的
+
+- **包装了 `window.fetch`**：Horae / JS-Slash-Runner / Luker / SillyTavern-AvatarDeblur / ST-Character-Manager / kimi / story-oracle / claude-web。**本扩展一个全局函数都不包装**（不碰 `fetch` / `addOneMessage` / `saveChat` / `generate` / `location`），只用公开的 `getContext()` —— 这是能跟它们共存的前提。
+- **会自己调 `stopGeneration()`**：kimi（流式中截断思维链）、Horae、JS-Slash-Runner、story-oracle、st-first-message、gaga-world-forge、st-theater、Luker。被它们停下来的走 `GENERATION_STOPPED` 分支，草稿留住、不重复插入。
+- **纯 UI**：Extension-TopInfoBar / SillyTavern-Timelines / Extension-Silence / SillyTavern-Layout / statusbar-fixer / SillyTavern-AvatarCropper / theme-manager / PersonaGroups 等，不刷新也不包装全局，无冲突。
+
+### 生成中会拦下的「更新」按钮
+
+柏宝箱这一类扩展的「发现新版本」弹窗，点「更新」后它自己 `setTimeout` 刷新 —— 那是别人家的定时器，事后取消不了，**唯一能在还没刷的那一刻做点什么的办法就是拦这次点击**。
+
+判定收得很紧，同时满足才拦：① 按钮文字是「更新 / 立即更新 / 现在更新」这类；② 它所在弹窗里出现了「自动刷新页面」字样；③ 不在酒馆扩展管理面板里（那里的 `.btn_update` 只 toast、不 reload，点它安全）。按住 **Shift** 点 = 放行（先把草稿落盘，再让它刷）。
+
+### 一个真机上才发现的问题：`loading_order` 不能给 100
+
+第一版 `manifest.json` 写的是 `loading_order: 100`。真机干净重载后扩展**根本没被加载**（`window.GenerationGuardian` 是 `undefined`，面板也不出现），但 `/api/extensions/discover` 能列出它、手动 `import()` 也成功。
+
+原因：酒馆 `extensions.js` 的 `activateExtensions()` 是**按 `loading_order` 升序、在 for 循环里 `await` 每个扩展的激活**。本机一堆扩展都是 `100`（claude-web / TopInfoBar / JS-Slash-Runner / Horae / story-oracle / st-theater …），排在 `100` 末尾的很容易被前面某个卡住的扩展连累，永远轮不到。
+
+改成 `loading_order: 5` 之后，干净重载能稳定自动加载。同时 `mountSettings()` 加了「面板容器还没渲染就隔 300ms 重试，最多 12 次」—— 因为加载得早时 `#extensions_settings2` 可能还没出来。
+
+一句话：**刷新这件事在浏览器层面拦不住，所以本扩展的做法是「别拦，抢在刷新前存好」** —— 所有导航（`reload` / `replace` / 关页 / 手机杀后台）之前浏览器必定触发 `beforeunload`，我们在那一刻把草稿刷成最新；回来自动补回成正式一轮。
 
 一句话：**刷新这件事在浏览器层面拦不住，所以本扩展的做法是「别拦，抢在刷新前存好」** —— 所有导航（`reload` / `replace` / 关页 / 手机杀后台）之前浏览器必定触发 `beforeunload`，我们在那一刻把草稿刷成最新；回来自动补回成正式一轮。
 

@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.4';
+const VERSION = '1.3.5';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -801,6 +801,64 @@ function guardReloadProneClick(event) {
         : '正在生成中，启用 / 禁用扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
 }
 
+/* 扩展自己的「更新」确认弹窗：点了以后它们自己会 setTimeout 刷新（实测本机
+   ST-BaiBai-Tools / Mobile-Resize-Guard 是 1 秒，Self-Check 0.9 秒，Horae 0.8 秒，
+   JS-Slash-Runner 3 秒，persona-weaver 1.5 秒，titania-theater 0.5 秒…）。
+   这些全是别人家的 setTimeout，拿不到 timer id，没法在事后取消 ——
+   唯一能在「还没刷」那一刻做点什么的办法，就是拦这次点击。
+
+   判定收得很紧，只在生成中生效，且要同时满足：
+     1) 按钮文字是「更新 / 立即更新 / 现在更新」这类；
+     2) 它所在的容器里出现了「自动刷新页面」字样（扩展更新弹窗的典型提示）；
+     3) 不是酒馆扩展管理面板里的 .btn_update（那个只 toast、不 reload，点它安全）。
+   按住 Shift 点 = 放行（草稿先落盘，回来照样能补）。 */
+const UPDATE_BUTTON_TEXTS = ['更新', '立即更新', '现在更新', '马上更新', '更新并重启', 'update', 'update now'];
+const AUTO_RELOAD_HINT = /自动刷新|刷新页面|reload the page|will reload/i;
+
+function guardExtensionUpdateClick(event) {
+    if (!activelyGenerating() || !settings().enabled || !settings().blockReload) {
+        return;
+    }
+    const target = event.target;
+    if (typeof target?.closest !== 'function') {
+        return;
+    }
+    // 酒馆扩展管理面板里的「更新」：ST 只 toast 不 reload，放行
+    if (target.closest('.extensions_info, #extensions_settings, #extensions_settings2')) {
+        return;
+    }
+    const button = target.closest('button, a, .menu_button');
+    if (!button) {
+        return;
+    }
+    const label = String(button.textContent || '').trim().toLowerCase();
+    if (!label || label.length > 12 || !UPDATE_BUTTON_TEXTS.includes(label)) {
+        return;
+    }
+    const box = button.closest('.popup, #dialogue_popup, dialog, [class*="dialog"], [class*="modal"], [class*="popup"]');
+    const hintText = box ? String(box.textContent || '') : '';
+    if (!AUTO_RELOAD_HINT.test(hintText)) {
+        return;
+    }
+    if (event.shiftKey) {
+        try {
+            flushNow();
+        } catch (error) {
+            console.warn(TAG, error);
+        }
+        toast('已放行这次更新（草稿已保存，刷新回来会自动补回）', 'info');
+        return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    try {
+        flushNow();
+    } catch (error) {
+        console.warn(TAG, error);
+    }
+    toast('正在生成中，更新完它不到一秒就会把页面刷掉 —— 等这条写完再更新（按住 Shift 点可以强制放行）', 'warning');
+}
+
 /* ------------------------------------------------------------------ *
  * 为什么不去包装 fetch / 不去改别的全局函数
  *
@@ -1454,7 +1512,7 @@ const SETTINGS_HTML = `
         <div class="gg-diamond">◆</div>
         <div class="gg-sub">兼容状态 <span class="gg-count" id="gg-compat-count">0</span></div>
         <div id="gg-compat-list" class="gg-snap-list"></div>
-        <div class="gg-hint">这几个会主动刷新页面的扩展都逐个读过源码：能交给它自己的就交给它自己，拦不住的靠「刷新前先落盘 + 回来自动补回」。</div>
+        <div class="gg-hint">按「实际装着的目录」检测（不看设置里残留的旧 key）。这些扩展都有自己的定时器在刷新页面，拿不到它们的 timer，所以：刷新前先把草稿钉进存储，回来再自动补回。生成中点它们的「更新」会被我们拦住。</div>
 
         <div class="gg-diamond">◆</div>
         <div class="gg-sub">已保存草稿 <span class="gg-count" id="gg-snap-count">0</span></div>
@@ -1472,52 +1530,157 @@ const SETTINGS_HTML = `
  * 查过是纯 UI，不刷新也不包装全局，没必要占地方。
  * ------------------------------------------------------------------ */
 
+/* 按「装了哪个目录」来判定，不看 extension_settings 的 key ——
+ * 那些 key 是历史残留，扩展删了也留着，拿它判在场会误报（本机实测 80 多个 key，
+ * 真正装着的是 third-party 7 个 + data/default-user/extensions 里的一批）。 */
 const KNOWN_INTERRUPT_SOURCES = [
     {
         name: 'Hot-Reload 热重载',
-        note: '生成中它自己会把重启延后到写完，我们不去插手',
-        detect: () => Boolean(extension_settings?.['extension_hot_reload']),
+        dirs: ['SillyTavern-Extension-Hot-Reload'],
+        note: '生成中它自己把重启延后到写完，不用管',
+        autoReload: false,
+    },
+    {
+        name: '柏宝箱 ST-BaiBai-Tools',
+        dirs: ['ST-BaiBai-Tools'],
+        note: '发现插件更新后点「更新」，约 1 秒自动刷新 —— 生成中会被我们拦下',
+        autoReload: true,
+    },
+    {
+        name: 'Mobile-Resize-Guard',
+        dirs: ['SillyTavern-Mobile-Resize-Guard'],
+        note: '和柏宝箱同一套代码，更新后约 1 秒自动刷新',
+        autoReload: true,
+    },
+    {
+        name: 'Self-Check 自检',
+        dirs: ['SillyTavern-Self-Check'],
+        note: '自检完约 0.9 秒自动刷新，刷新前草稿已经落盘',
+        autoReload: true,
+    },
+    {
+        name: 'Horae',
+        dirs: ['SillyTavern-Horae'],
+        note: '两处 0.8 秒自动刷新，还会临时包一层 fetch（我们不碰 fetch，不打架）',
+        autoReload: true,
+    },
+    {
+        name: 'JS-Slash-Runner 酒馆助手',
+        dirs: ['JS-Slash-Runner'],
+        note: '更新后 3 秒自动刷新；会重定义 window.parent/top，我们不碰这些',
+        autoReload: true,
+    },
+    {
+        name: 'persona-weaver 人设编织',
+        dirs: ['st-persona-weaver'],
+        note: '1.5 秒自动刷新',
+        autoReload: true,
+    },
+    {
+        name: 'titania-theater',
+        dirs: ['titania-theater'],
+        note: '0.5 秒自动刷新',
+        autoReload: true,
+    },
+    {
+        name: 'st-theater',
+        dirs: ['st-theater'],
+        note: '剧场更新后会刷新页面',
+        autoReload: true,
+    },
+    {
+        name: 'chajian 插件',
+        dirs: ['chajian'],
+        note: '0.5 秒自动刷新',
+        autoReload: true,
+    },
+    {
+        name: 'QR',
+        dirs: ['QR'],
+        note: '2 秒自动刷新',
+        autoReload: true,
+    },
+    {
+        name: 'TypingIndicator 主题',
+        dirs: ['SillyTavern-TypingIndicatorThemes'],
+        note: '切换主题时会刷新',
+        autoReload: true,
     },
     {
         name: 'claude-web',
-        note: '只有你改布局 / 样式或点它的重载按钮才刷新，拦不到 —— 靠落盘 + 自动补回',
-        detect: () => Boolean(document.querySelector('[id^="claude-web-"]')),
+        dirs: ['claude-web'],
+        note: '改布局 / 样式或点重载才刷新，拦不住 —— 靠落盘兜住',
+        autoReload: true,
     },
     {
         name: 'story-oracle 故事神谕',
-        note: '「一键更新」成功后 5 秒自动刷新（点提示能取消）—— 5 秒已经够草稿写盘',
-        detect: () => Boolean(document.querySelector('[id^="so-"]')),
+        dirs: ['story-oracle'],
+        note: '「一键更新」成功后 5 秒刷新（提示可取消），5 秒够草稿写盘',
+        autoReload: true,
     },
     {
         name: 'kimi 思维链注入',
+        dirs: ['st-kimi-reasoning-injector'],
         note: '流式中会主动停止来截断，走「被中断」路径保住草稿',
-        detect: () => Boolean(document.querySelector('[id^="kimi"], [class*="kimi-"]')),
+        autoReload: false,
     },
 ];
 
-function renderCompatSection() {
+/* 已装扩展目录名缓存：ST 的 /api/extensions/discover 是实时读目录的，比任何 key 都准 */
+let installedDirCache = null;
+
+async function installedDirs() {
+    if (installedDirCache) {
+        return installedDirCache;
+    }
+    let names = [];
+    // 有的宿主环境把 fetch 只挂在 window 上（测试用的 jsdom 就是这样），
+    // 所以两个位置都认，一个都拿不到就当成「读不到名单」，功能降级而不是报错。
+    const fetcher = (typeof window !== 'undefined' && typeof window.fetch === 'function')
+        ? window.fetch.bind(window)
+        : (typeof fetch === 'function' ? fetch : null);
+    if (fetcher) {
+        try {
+            const response = await fetcher('/api/extensions/discover');
+            if (response && response.ok) {
+                const list = await response.json();
+                names = (Array.isArray(list) ? list : [])
+                    .map((item) => String(item?.name || '').replace(/^third-party\//, ''))
+                    .filter(Boolean);
+            }
+        } catch (error) {
+            // 拿不到名单就当没装，绝不因此报错、也不影响其余功能
+            names = [];
+        }
+    }
+    installedDirCache = names;
+    return names;
+}
+
+async function renderCompatSection() {
     const host = el('gg-compat-list');
     const counter = el('gg-compat-count');
     if (!host) {
         return;
     }
-    const detected = [];
-    for (const source of KNOWN_INTERRUPT_SOURCES) {
-        try {
-            if (source.detect()) {
-                detected.push(source);
-            }
-        } catch (error) {
-            /* 检测本身出错就当没装，绝不因此报错 */
-        }
+    let installed = [];
+    try {
+        installed = await installedDirs();
+    } catch (error) {
+        installed = [];
     }
+    const lower = installed.map((name) => name.toLowerCase());
+    const detected = KNOWN_INTERRUPT_SOURCES.filter((source) => source.dirs
+        .some((dir) => lower.includes(dir.toLowerCase())));
+    // 会自己刷新的排前面，别让真正要防的被纯 UI 的挤掉
+    detected.sort((a, b) => Number(Boolean(b.autoReload)) - Number(Boolean(a.autoReload)));
     if (counter) {
         counter.textContent = String(detected.length);
     }
     host.textContent = '';
     const rows = detected.length
         ? detected
-        : [{ name: '没检测到一起会主动刷新的扩展', note: '本机这 7 个里，TopInfoBar / Timelines / Silence 只画 UI，不刷新' }];
+        : [{ name: '没检测到会自动刷新的扩展', note: '当前装的扩展里没有会自己 reload 的，放心玩' }];
     for (const row of rows) {
         const item = document.createElement('div');
         item.className = 'gg-snap-row';
@@ -1535,9 +1698,17 @@ function renderCompatSection() {
     }
 }
 
-function mountSettings() {
+function mountSettings(retry = 0) {
     const host = el('extensions_settings2') || el('extensions_settings');
-    if (!host || el('gg-settings')) {
+    if (el('gg-settings')) {
+        return;
+    }
+    // 本扩展的 loading_order 很靠前，扩展面板容器可能还没渲染出来；
+    // 容器缺席时不能就此放弃，隔一小段时间再挂一次，最多试 12 次（约 3.6 秒）。
+    if (!host) {
+        if (retry < 12) {
+            setTimeout(() => mountSettings(retry + 1), 300);
+        }
         return;
     }
     const wrapper = document.createElement('div');
@@ -1806,6 +1977,7 @@ function initOnce() {
         }
     });
     document.addEventListener('click', guardReloadProneClick, true);
+    document.addEventListener('click', guardExtensionUpdateClick, true);
 
     ensureUI();
     applyTheme();

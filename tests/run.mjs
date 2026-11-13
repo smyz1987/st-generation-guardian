@@ -314,7 +314,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.4 版本号', window.GenerationGuardian?.version === '1.3.4');
+    ok('调试入口暴露了 1.3.5 版本号', window.GenerationGuardian?.version === '1.3.5');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -507,7 +507,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.4');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.5');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -1043,14 +1043,29 @@ async function scenarioReloadShield() {
 
     // 记录所有真正发出去的请求
     const sent = [];
+    const DISCOVER_LIST = [
+        { type: 'system', name: 'assets' },
+        { type: 'global', name: 'third-party/st-generation-guardian' },
+        { type: 'global', name: 'third-party/SillyTavern-Extension-Hot-Reload' },
+        { type: 'global', name: 'third-party/claude-web' },
+        { type: 'local', name: 'third-party/ST-BaiBai-Tools' },
+        { type: 'local', name: 'third-party/SillyTavern-Self-Check' },
+        { type: 'local', name: 'third-party/mobile' },
+    ];
     const stubFetch = (input) => {
-        sent.push(String(input?.url || input));
+        const url = String(input?.url || input);
+        sent.push(url);
+        if (url.includes('/api/extensions/discover')) {
+            return Promise.resolve({ ok: true, status: 200, json: async () => DISCOVER_LIST });
+        }
         return Promise.resolve({ ok: true, status: 200 });
     };
     window.fetch = stubFetch;
 
     await bootExtension();
     await signalReady(ctx);
+    // 兼容状态是异步拿扩展目录名单再渲染的，给它一点时间
+    await new Promise((resolve) => setTimeout(resolve, 60));
 
     ok('没有包装 window.fetch（和 claude-web / kimi / story-oracle 的 fetch 钩子零冲突', window.fetch === stubFetch);
 
@@ -1068,6 +1083,25 @@ async function scenarioReloadShield() {
     const updateEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
     updateBtn.dispatchEvent(updateEvent);
     ok('生成中点「更新」不被拦（否则她会觉得点了没反应）', !updateEvent.defaultPrevented);
+
+    // 1.5) 扩展自己的「发现新版本」弹窗：点更新后它们 setTimeout 1 秒就刷新 → 生成中必须拦
+    const autoPopup = document.createElement('div');
+    autoPopup.className = 'popup';
+    autoPopup.innerHTML = '<div>检测到插件有可用更新。要现在更新吗？</div>'
+        + '<div>更新完成后，SillyTavern 会自动刷新页面。</div>'
+        + '<button type="button" class="menu_button" id="gg-test-update">更新</button>'
+        + '<button type="button" class="menu_button" id="gg-test-cancel">取消</button>';
+    document.body.appendChild(autoPopup);
+    const autoUpdateEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    document.getElementById('gg-test-update').dispatchEvent(autoUpdateEvent);
+    ok('生成中点扩展自动更新弹窗的「更新」被拦下', autoUpdateEvent.defaultPrevented);
+    const autoCancelEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    document.getElementById('gg-test-cancel').dispatchEvent(autoCancelEvent);
+    ok('同一个弹窗里点「取消」不拦，照样能关掉', !autoCancelEvent.defaultPrevented);
+    const shiftUpdateEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true });
+    document.getElementById('gg-test-update').dispatchEvent(shiftUpdateEvent);
+    ok('按住 Shift 点「更新」放行（先落盘再让它刷）', !shiftUpdateEvent.defaultPrevented);
+    autoPopup.remove();
 
     // 2) 换分支 / 移动：同样不 reload → 放行
     for (const selector of ['.btn_branch', '.btn_move']) {
@@ -1095,7 +1129,8 @@ async function scenarioReloadShield() {
 
     // 6) 正常聊天请求永不受影响
     await window.fetch('/api/backends/chat-completions/generate', { method: 'POST', body: '{}' });
-    eq('正常生成请求照常放行', sent.length, 1);
+    const generateCalls = sent.filter((url) => url.includes('/api/backends/chat-completions/generate'));
+    eq('正常生成请求照常放行', generateCalls.length, 1);
 
     // 7) 生成结束 → 删除按钮放行
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});

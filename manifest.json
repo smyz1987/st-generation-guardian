@@ -1,12 +1,12 @@
 {
     "display_name": "Generation Guardian (生成守护)",
-    "loading_order": 100,
+    "loading_order": 5,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "smyz1987",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "homePage": "https://github.com/smyz1987/st-generation-guardian",
     "auto_update": false,
     "minimum_client_version": "1.12.0"
