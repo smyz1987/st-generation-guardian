@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.2';
+const VERSION = '1.3.3';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -63,10 +63,8 @@ const DEFAULT_SETTINGS = {
     theme: DEFAULT_THEME,
     // 被打断时直接把草稿补回聊天（写进聊天记录并保存），不用手动点「接回」
     autoRestore: true,
-    // 生成中是否同时拦住「启用 / 禁用 / 更新 / 删除 / 清理」这类会 location.reload() 的扩展操作
+    // 生成中是否拦住「启用 / 禁用 / 删除 / 清理」这类会刷新页面的扩展操作
     blockExtensionOps: true,
-    // 生成中是否拦住扩展的自动更新 / 安装 / 删除请求（它们会刷新页面）
-    delayReload: true,
     // 生成中是否显示「已保存 N 字」的浮动徽标
     showBadge: true,
     // 点「续写」后是否立刻替你发出去；关掉就只把指令填进输入框，自己改完按发送
@@ -480,6 +478,14 @@ function activelyGenerating() {
 
 /** 生成状态卡死（结束事件丢了）时，把它解开，别让它继续挡路 */
 function releaseGeneration() {
+    // 释放之前先把还没落盘的那一段写掉：自愈解锁 / 事件丢失时也不丢字
+    try {
+        if (buffer?.text) {
+            flushNow();
+        }
+    } catch (error) {
+        console.warn(TAG, error);
+    }
     generating = false;
     buffer = null;
     clearStallWatch();
@@ -628,11 +634,18 @@ function adoptBuffer() {
     };
 }
 
+/** 落盘间隔：草稿短的时候写盘很便宜，压到 300ms —— 别的扩展万一下一刻就把页面
+    刷了，也能少丢一点；草稿变大后序列化成本上升，退回 800ms。 */
+function flushInterval() {
+    const length = String(buffer?.text || '').length;
+    return length > 20000 ? FLUSH_INTERVAL_MS : Math.min(300, FLUSH_INTERVAL_MS);
+}
+
 function scheduleFlush() {
     if (flushTimer) {
         return;
     }
-    const wait = Math.max(0, FLUSH_INTERVAL_MS - (Date.now() - lastFlushAt));
+    const wait = Math.max(0, flushInterval() - (Date.now() - lastFlushAt));
     flushTimer = setTimeout(() => {
         flushTimer = null;
         flushNow();
@@ -744,14 +757,16 @@ function disarmUnloadGuard() {
  * 生成期间在这些按钮的捕获阶段就地拦下，等生成完再操作。
  * ------------------------------------------------------------------ */
 
-const RELOAD_PRONE_SELECTOR = [
+/* 只有这四类真的会在生成中把页面刷掉：
+   - 启用 / 禁用：改完置 requiresReload，关扩展弹窗那一刻 reload
+   - 删除 / 清理：delay(1000).then(() => location.reload())
+   其余（更新 / 换分支 / 移动）只改文件、不 reload，一概放行 ——
+   这样她用热重载扩展点更新不会「点了没反应」。 */
+const CLICK_BLOCK_SELECTOR = [
     '.extensions_info .extension_block .toggle_enable',
     '.extensions_info .extension_block .toggle_disable',
-    '.extensions_info .extension_block .btn_update',
     '.extensions_info .extension_block .btn_delete',
     '.extensions_info .extension_block .btn_clean',
-    '.extensions_info .extension_block .btn_move',
-    '.extensions_info .extension_block .btn_branch',
 ].join(', ');
 
 function guardReloadProneClick(event) {
@@ -759,7 +774,7 @@ function guardReloadProneClick(event) {
         return;
     }
     const target = event.target;
-    const hit = typeof target?.closest === 'function' ? target.closest(RELOAD_PRONE_SELECTOR) : null;
+    const hit = typeof target?.closest === 'function' ? target.closest(CLICK_BLOCK_SELECTOR) : null;
     if (!hit) {
         return;
     }
@@ -780,65 +795,25 @@ function guardReloadProneClick(event) {
     } catch (error) {
         console.warn(TAG, error);
     }
-    toast('正在生成中，这个操作会刷新页面把回复刷掉 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
+    toast('正在生成中，启用 / 禁用扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
 }
 
 /* ------------------------------------------------------------------ *
- * 生成中拦住扩展管理类请求（自动更新 / 安装 / 删除 / 换分支 …）
+ * 为什么不去包装 fetch / 不去改别的全局函数
  *
- * 浏览器不允许改写 location.reload（HTML 规范里 Location 的属性是
- * Unforgeable，defineProperty 一定抛错），所以「把刷新延后」是做不到的。
- * 但这类刷新都源自一次 API 请求：请求被拦下 → 服务端没真的动扩展 → 也就不会刷新。
- * 只拦这几个 /api/extensions/* 管理接口，且只在生成中、且开关打开时，其他请求一概不碰。
+ * 逐个对着酒馆源码查过（public/scripts/extensions.js）：
+ *   - 更新扩展：onUpdateClick → updateExtension → 只 toast「Reload the page to
+ *     apply updates」，**不 reload**，所以生成中点更新并不会打断回复 —— 不必拦。
+ *   - 换分支 / 移动：只弹确认再调接口，也不 reload —— 不必拦。
+ *   - 启用 / 禁用：改完状态置 requiresReload，**关闭扩展弹窗那一刻** reload。
+ *   - 删除 / 清理：delay(1000).then(() => location.reload())，**必刷**。
+ *
+ * 所以只有「启用/禁用/删除/清理」四类真的会在生成中把页面刷掉，也就只拦这四类，
+ * 别的一概放行。更新走的是热重载扩展（SillyTavern-Extension-Hot-Reload）时更安全 ——
+ * 它自己就会在生成中把重启延后到 GENERATION_ENDED / GENERATION_STOPPED，我们不去插手。
+ * 浏览器也不允许改写 location.reload（Location 的属性是 Unforgeable），
+ * 所以「事后延后刷新」这条思路本来就不存在，别再包装任何全局函数。
  * ------------------------------------------------------------------ */
-
-const EXTENSION_API_PATTERN = /\/api\/extensions\/(update|install|delete|move|branch|clean|version)\b/i;
-const RAW_FETCH = (() => {
-    try {
-        return typeof window.fetch === 'function' ? window.fetch : null;
-    } catch (error) {
-        return null;
-    }
-})();
-let fetchShieldInstalled = false;
-
-function isExtensionAdminRequest(input) {
-    try {
-        const url = typeof input === 'string'
-            ? input
-            : String(input?.url || input?.toString?.() || '');
-        return EXTENSION_API_PATTERN.test(url);
-    } catch (error) {
-        return false;
-    }
-}
-
-function installFetchShield() {
-    if (fetchShieldInstalled || !RAW_FETCH) {
-        return;
-    }
-    try {
-        window.fetch = function guardedFetch(input, init) {
-            try {
-                if (settings().enabled && settings().delayReload && activelyGenerating() && isExtensionAdminRequest(input)) {
-                    try {
-                        flushNow();
-                    } catch (error) {
-                        console.warn(TAG, error);
-                    }
-                    toast('正在生成中，已拦下一个扩展管理请求（它会让页面刷新）—— 等这条回复写完再操作', 'warning');
-                    return Promise.reject(new Error('GenerationGuardian: extension admin request blocked'));
-                }
-            } catch (error) {
-                /* 判断出错就照常放行，绝不因为护栏本身挡住正常请求 */
-            }
-            return RAW_FETCH.apply(this, arguments);
-        };
-        fetchShieldInstalled = true;
-    } catch (error) {
-        console.warn(TAG, 'fetch shield unavailable, fallback to click guard only');
-    }
-}
 
 /* ------------------------------------------------------------------ *
  * 界面：状态徽标
@@ -1453,8 +1428,7 @@ const SETTINGS_HTML = `
         <div class="gg-sub">开关</div>
         <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 更新 / 删除 / 清理）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-delayreload"><span>生成中拦住扩展的自动更新 / 安装 / 删除请求（这些会让页面刷新）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
@@ -1479,7 +1453,7 @@ const SETTINGS_HTML = `
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.2</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.3</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 
@@ -1498,7 +1472,6 @@ function mountSettings() {
     el('gg-set-enabled').checked = Boolean(s.enabled);
     el('gg-set-block').checked = Boolean(s.blockReload);
     el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
-    el('gg-set-delayreload').checked = Boolean(s.delayReload);
     el('gg-set-badge').checked = Boolean(s.showBadge);
     el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-autorestore').checked = Boolean(s.autoRestore);
@@ -1584,10 +1557,6 @@ function mountSettings() {
     });
     el('gg-set-ops').addEventListener('change', (event) => {
         s.blockExtensionOps = Boolean(event.target.checked);
-        persistSettings();
-    });
-    el('gg-set-delayreload').addEventListener('change', (event) => {
-        s.delayReload = Boolean(event.target.checked);
         persistSettings();
     });
     el('gg-set-badge').addEventListener('change', (event) => {
@@ -1762,7 +1731,6 @@ function initOnce() {
     ensureUI();
     applyTheme();
     mountSettings();
-    installFetchShield();
     // 让刷新/重载后的恢复卡片晚一点出现，等聊天先渲染完
     setTimeout(scanForRecoverySafe, 600);
 

@@ -208,8 +208,8 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 | 接回 | `chat.push()` + `addOneMessage()` + `saveChat()`，不调用生成；失败时回滚已插入的消息 |
 | 自动补回 | 重载 / 打断后 `scan` 到可恢复草稿就自动走一遍接回（默认开，可关），成功后卡片切「已自动补回」并记住那条的 index 供撤销 |
 | 续写 | 写进 `#send_textarea` 再 `generate('normal')`，等价你手打发送；失败时把指令填回输入框 |
-| 拦截刷新 | `beforeunload` + 捕获阶段拦 `.extensions_info` 里会 `location.reload()` 的 7 类按钮；按住 Shift 点 = 这一次放行（先落盘再让它去刷） |
-| 拦截扩展管理请求 | 生成中把发往 `/api/extensions/{update,install,delete,move,branch,clean,version}` 的 `fetch` 直接拒绝，服务端没被真的动，也就不会刷新页面；其它接口一律原样转发 |
+| 拦截刷新 | `beforeunload` + 捕获阶段拦 `.extensions_info` 里真会 `location.reload()` 的 4 类按钮（启用 / 禁用 / 删除 / 清理）；按住 Shift 点 = 这一次放行（先落盘再让它去刷） |
+| 不拦什么 | 「更新 / 换分支 / 移动」只改文件、酒馆源码里也不 reload，所以一概放行 —— 点更新不会变成「点了没反应」 |
 | 存储兜底 | localStorage 写满时逐条驱逐旧草稿，保证当前这条一定写得进去 |
 | 幂等 | 恢复中加锁 + 二次校验草稿是否还存在，双击按钮不会插两条消息 |
 | 界面 | `extensions_settings2` 里挂一个 ST 标准的 `.inline-drawer`（官方点击折叠逻辑自动接管）；四套主题是 `body.gg-theme-*` 上的 CSS 变量，字体全部 `inherit` |
@@ -224,11 +224,11 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 | 生成完了，扩展还在拦扩展按钮 / 还在拦刷新 | 「生成中」不只看一个 flag，还要看在 5 分钟内确实有新字进来；没有就当场 `releaseGeneration()` 解锁，连徽标一起收掉 |
 | 结束事件丢了，状态永远卡在「生成中」 | 卡住看门狗到点后复核，超过 5 分钟直接收尾，草稿留着，状态放开 |
 | 我自己的回调抛异常，把酒馆的事件链炸了 | 五个事件回调全部包在 try/catch 里，出错只打一条 `console.warn`，事件照常传给后面的监听者 |
-| 点别的地方被误拦 | 捕获阶段的监听只认 `.extensions_info .extension_block` 下那 7 类选择器，其余点击一律原样放行（不 `stopPropagation`、不 `preventDefault`） |
-| 和别的扩展打架 | 不碰 `addOneMessage`、`saveChat`、`generate` 这些酒馆函数，只用公开的 `getContext()`；唯一被包装的是 `fetch`，而且是**链式**的：存下原来的实现，不归我管的请求原样 `apply` 出去，别的扩展自己的 `fetch` 包装也不受影响 |
-| 挡住正常聊天请求 | fetch 护栏只认 `/api/extensions/*` 管理接口，`/api/backends/chat-completions/generate` 这类正事请求一概放行（测试里专门有一条断言盯着这个） |
+| 点别的地方被误拦 | 捕获阶段的监听只认 `.extensions_info .extension_block` 下那 4 类选择器，其余点击一律原样放行（不 `stopPropagation`、不 `preventDefault`） |
+| 和别的扩展打架 | **一个全局函数都不包装**：不碰 `fetch`、不碰 `addOneMessage` / `saveChat` / `generate`、不改 `location`，只用公开的 `getContext()` 读数据 |
+| 挡住正常聊天请求 | 根本不参与请求层，`/api/backends/chat-completions/generate` 这类正事请求完全不受影响（测试里专门断言 `window.fetch` 没被换掉） |
 | 样式串味 | 颜色和字体只在 `#gg-badge` / `#gg-panel` / `#gg-settings` 里生效，`body` 上只加 `gg-theme-*` 四个 class，不碰 `.mes`、`.chat` 这些酒馆自己的类 |
-| 不停写盘拖慢聊天 | 落 localStorage 节流 800ms；DOM 只在字数或状态变化时更新；面板隐藏时不重建列表 |
+| 不停写盘拖慢聊天 | 落 localStorage 动态节流：草稿 2 万字符以内 300ms 一次，超过就退回 800ms；DOM 只在字数或状态变化时更新；面板隐藏时不重建列表 |
 | 动到你的聊天数据 | 只会插入「被打断的那一条」，也就是它本该在的位置；撤销按钮可以拿掉。别的时候只读，不删消息、不改角色卡、不改酒馆任何文件 |
 | 两个标签页 / 扩展被重复加载 | 扫描加了一把 3 秒的跨实例锁，「撤销补回」需要的记录写在面板 `dataset` 上而不是只放变量里 —— 另一个实例点撤销也能拿到同一份记录 |
 | 联网 / 隐私 | 组装层面零外部请求，草稿只存在你浏览器的 localStorage 里（key `genGuardian.snapshots.v1`） |
@@ -253,9 +253,9 @@ npm install
 npm test
 ```
 
-覆盖：流式中断→重载→自动补回聊天（含撤销）、接回后不发请求、「续写」只发一次普通请求、重复点击不重复发、关掉直接发送时只填不发、continue 类型恢复到原消息、swipe 只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、别的聊天的草稿不弹卡片、设置面板与草稿清单、四套主题切换、生成中拦截会刷新的扩展操作、生成中拦截扩展管理请求（且不误伤正常生成请求）、Shift 强制放行、生成状态卡死 5 分钟后自动解锁、半截消息补全、替我说话正常完成不误留草稿、错过开始事件也能存、重复开始事件不清空、存储写满驱逐旧草稿、续写发送失败回填指令、保存聊天失败不丢消息。
+覆盖：流式中断→重载→自动补回聊天（含撤销）、接回后不发请求、「续写」只发一次普通请求、重复点击不重复发、关掉直接发送时只填不发、continue 类型恢复到原消息、swipe 只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、别的聊天的草稿不弹卡片、设置面板与草稿清单、四套主题切换、扩展操作护栏（只拦真会刷新的四类、更新/换分支/移动放行、不包装 `fetch`）、Shift 强制放行、生成状态卡死 5 分钟后自动解锁、半截消息补全、替我说话正常完成不误留草稿、错过开始事件也能存、重复开始事件不清空、存储写满驱逐旧草稿、续写发送失败回填指令、保存聊天失败不丢消息、别的扩展突然刷新时 `beforeunload` 那一刻草稿已是最新。
 
-当前：**160 项断言全通过**。
+当前：**164 项断言全通过**（21 个场景）。
 
 ---
 
@@ -301,8 +301,24 @@ git config user.email "你的邮箱"
 - 单条草稿超过 100 万字会截断保留头尾，卡片上会标「过长已截断」。
 - 依赖 `STREAM_TOKEN_RECEIVED` 事件，低于 1.12 的旧版本可能没有。
 - 同一浏览器开两个酒馆标签同时生成，两条草稿可能互相覆盖（同时只会有一个标签在生成）。
-- **浏览器不允许改写 `location.reload`**（HTML 规范里 Location 的属性是 Unforgeable），所以「把刷新延后」这件事做不到。能拦的是「发起刷新的那一跳」：UI 按钮 + 扩展管理接口请求。如果某个扩展是自己直接调 `location.reload()` 又不走那些接口，页面照样会刷 —— 这时候靠的就是草稿已落盘 + 回来自动补回。
-- 拦截扩展管理请求期间，那个扩展自己的更新会失败并可能弹一条错误提示，这是有意的：宁可不更新，也不让回复白丢。
+- **浏览器不允许改写 `location.reload`**（HTML 规范里 Location 的属性是 Unforgeable），所以「把刷新延后」这件事做不到。能拦的是「发起刷新的那一跳」：那 4 类 UI 按钮。如果某个扩展是自己直接调 `location.reload()`，页面照样会刷 —— 这时候靠的是草稿已落盘（`beforeunload` 那一刻强制再写一次）+ 回来自动补回。
+- 生成中按下那 4 类按钮会被拦；更新 / 换分支 / 移动不拦（它们不会 reload），所以**不会**让扩展更新变成「点了没反应」。
+
+## 和本机这 7 个第三方扩展的关系
+
+逐个读过源码（`public/scripts/extensions/third-party/<name>`），结论如下：
+
+| 扩展 | 会打断生成的动作 | 本扩展怎么处理 |
+|---|---|---|
+| **SillyTavern-Extension-Hot-Reload 1.5.5** | 更新后走 `location.replace()` 无缝重启；但它在生成中会把重启**延后**到 `GENERATION_ENDED` / `GENERATION_STOPPED`（`index.js:785-807`），默认「不刷新」模式下更新根本不重启 | 它自己就能扛，我们**不插手**：不拦更新按钮、不拦它的请求。万一它的 `isGenerating()` 判断失手，靠草稿 + 自动补回兜住 |
+| **claude-web** | 切布局 / 改 UI 样式 / 点它自己的「更新后重载」按钮 → `window.location.reload()`（`index.js:371/8446`、`emergency.js` 多处）；**它也包装了 `window.fetch`** | 都是她主动点设置才会触发，拦不到也不需要拦；因为**我们不包装 `fetch`**，和它的钩子零冲突。真刷了也是草稿 + 自动补回 |
+| **story-oracle** | 「一键更新」成功后 5 秒自动 `location.reload()`（`index.js:41779`，toast 可取消）；**也包装了 `window.fetch`**，还 `Object.defineProperty(window,'SillyTavern')` | 同上：不碰 `fetch` 就不打架；5 秒窗口足够草稿写盘，回来自动补回 |
+| **st-kimi-reasoning-injector** | 流式中会**主动 `stopGeneration()`** 截断（这是它的功能）；`index.js:4325/4330` 有 reload；**也包装了 `window.fetch`** | 被它截断时走 `GENERATION_STOPPED` 分支：草稿留住 + 自动补回；它若已把消息写好，锚点校验会发现「聊天已经变了」而不再重复插入 |
+| **Extension-TopInfoBar** | 只画顶栏，没有 reload / 没包装全局 | 无冲突 |
+| **SillyTavern-Timelines** | 只做时间线面板，没有 reload / 没包装全局 | 无冲突 |
+| **Extension-Silence** | 只做静音 / 隐藏，没有 reload / 没包装全局 | 无冲突 |
+
+一句话：**刷新这件事在浏览器层面拦不住，所以本扩展的做法是「别拦，抢在刷新前存好」** —— 所有导航（`reload` / `replace` / 关页 / 手机杀后台）之前浏览器必定触发 `beforeunload`，我们在那一刻把草稿刷成最新；回来自动补回成正式一轮。
 
 ## License
 

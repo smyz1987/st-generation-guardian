@@ -314,7 +314,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.2 版本号', window.GenerationGuardian?.version === '1.3.2');
+    ok('调试入口暴露了 1.3.3 版本号', window.GenerationGuardian?.version === '1.3.3');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -507,7 +507,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.2');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.3');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -620,21 +620,21 @@ async function scenarioGuardReloadClicks() {
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     document.querySelector('.btn_update').click();
     await sleep(20);
-    eq('生成中点「更新」被就地拦下', bubbled, 1);
+    eq('生成中点「更新」照常放行（更新只提示刷新、不会真刷）', bubbled, 2);
 
     document.querySelector('.toggle_disable').click();
     await sleep(20);
-    eq('生成中点「禁用」也被拦下', bubbled, 1);
+    eq('生成中点「禁用」被拦下', bubbled, 2);
 
     document.querySelector('.btn_clean').click();
     await sleep(20);
-    eq('生成中点「清理」也被拦下', bubbled, 1);
+    eq('生成中点「清理」被拦下', bubbled, 2);
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
     await sleep(30);
-    document.querySelector('.btn_update').click();
+    document.querySelector('.toggle_disable').click();
     await sleep(20);
-    eq('生成结束后恢复正常', bubbled, 2);
+    eq('生成结束后恢复正常', bubbled, 3);
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
@@ -929,12 +929,12 @@ async function scenarioStaleGenerationRelease() {
     const menu = document.createElement('div');
     menu.id = 'extensions_menu';
     menu.innerHTML = `<div class="extensions_info"><div class="extension_block" data-name="third-party/bar">
-        <span class="btn_update">更新</span>
+        <span class="toggle_disable">禁用</span>
     </div></div>`;
     document.body.appendChild(menu);
 
     let hits = 0;
-    document.querySelector('.btn_update').addEventListener('click', () => {
+    document.querySelector('.toggle_disable').addEventListener('click', () => {
         hits += 1;
     });
 
@@ -943,8 +943,8 @@ async function scenarioStaleGenerationRelease() {
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '半截内容');
-    document.querySelector('.btn_update').click();
-    eq('正在出字时，点「更新」被拦下', hits, 0);
+    document.querySelector('.toggle_disable').click();
+    eq('正在出字时，点「禁用」被拦下', hits, 0);
     eq('对外报告的是「真的在生成」', window.GenerationGuardian.isGenerating(), true);
 
     // 时间往前推 6 分钟：模拟 GENERATION_ENDED 丢了，这次生成其实早就死了
@@ -952,7 +952,7 @@ async function scenarioStaleGenerationRelease() {
     const shift = 6 * 60 * 1000;
     Date.now = () => realNow() + shift;
 
-    document.querySelector('.btn_update').click();
+    document.querySelector('.toggle_disable').click();
     eq('超过 5 分钟没动静后不再拦，可以正常动扩展', hits, 1);
     eq('对外报告的「生成中」也已经解除', window.GenerationGuardian.isGenerating(), false);
 
@@ -1013,76 +1013,120 @@ async function scenarioAutoRestore() {
 }
 
 async function scenarioReloadShield() {
-    console.log('\n[20] 生成中拦住扩展的自动更新请求（它会刷新页面），Shift 点击可强制放行');
+    console.log('\n[20] 扩展操作护栏：只拦真会刷新的四类，别的一概放行，且不包装任何全局函数');
     captureConsole();
     storage.clear();
     extensionSettingsStub['generation-guardian'] = {
         enabled: true,
         blockReload: true,
         blockExtensionOps: true,
-        delayReload: true,
         autoRestore: false,
     };
+    // 热重载扩展在场（它自己会把重启延后到生成结束，我们不去插手）
+    extensionSettingsStub['extension_hot_reload'] = { mode: 'force' };
 
     const chat = makeChat();
     const ctx = createWorld({ chat });
 
-    // 造一个「扩展管理面板」里的删除按钮，模拟 ST 自己的 .extensions_info 结构
     const info = document.createElement('div');
     info.className = 'extensions_info';
-    info.innerHTML = '<div class="extension_block"><button type="button" class="btn_delete">Delete</button></div>';
+    info.innerHTML = [
+        '<div class="extension_block">',
+        '<button type="button" class="toggle_enable">Enable</button>',
+        '<button type="button" class="btn_update">Update</button>',
+        '<button type="button" class="btn_delete">Delete</button>',
+        '<button type="button" class="btn_branch">Branch</button>',
+        '<button type="button" class="btn_move">Move</button>',
+        '</div>',
+    ].join('');
     document.body.appendChild(info);
 
-    // 假 fetch：记录真正发出去的请求，方便断言「该拦的拦住了、不该拦的照常放行」
+    // 记录所有真正发出去的请求
     const sent = [];
     const stubFetch = (input) => {
         sent.push(String(input?.url || input));
         return Promise.resolve({ ok: true, status: 200 });
     };
-    const originalFetch = stubFetch;
     window.fetch = stubFetch;
 
     await bootExtension();
     await signalReady(ctx);
 
-    ok('fetch 护栏装上了', window.fetch !== originalFetch);
-    ok('面板里认得这个删除按钮', Boolean(document.querySelector('.extensions_info .extension_block .btn_delete')));
+    ok('没有包装 window.fetch（和 claude-web / kimi / story-oracle 的 fetch 钩子零冲突', window.fetch === stubFetch);
 
     const text = '她低头笑了，把杯子推回你手边。';
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, text);
     ok('现在是在生成中', window.GenerationGuardian.isGenerating());
 
-    // 1) 生成中「自动更新扩展」的请求 → 拒绝，服务端没被真的动
-    let rejected = false;
-    try {
-        await window.fetch('/api/extensions/update', { method: 'POST', body: '{}' });
-    } catch (error) {
-        rejected = true;
+    // 1) 更新按钮：酒馆源码里更新只 toast「刷新以生效」、不 reload → 不该拦
+    const updateBtn = info.querySelector('.btn_update');
+    const updateEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    updateBtn.dispatchEvent(updateEvent);
+    ok('生成中点「更新」不被拦（否则她会觉得点了没反应）', !updateEvent.defaultPrevented);
+
+    // 2) 换分支 / 移动：同样不 reload → 放行
+    for (const selector of ['.btn_branch', '.btn_move']) {
+        const event = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+        info.querySelector(selector).dispatchEvent(event);
+        ok(`生成中点 ${selector} 不被拦`, !event.defaultPrevented);
     }
-    ok('生成中扩展更新请求被拦下', rejected);
-    eq('该请求没真的发到服务端', sent.length, 0);
+
+    // 3) 删除：delay(1000).then(location.reload()) → 必须拦
+    const deleteBtn = info.querySelector('.btn_delete');
+    const blocked = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    deleteBtn.dispatchEvent(blocked);
+    ok('生成中点「删除扩展」被就地拦下', blocked.defaultPrevented);
     eq('拦下之前草稿还是落盘了', readSnapshots().length, 1);
 
-    // 2) 正常聊天的请求必须照常放行，绝不能被护栏挡住
+    // 4) 启用：关扩展弹窗时会 reload → 必须拦
+    const enableEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    info.querySelector('.toggle_enable').dispatchEvent(enableEvent);
+    ok('生成中点「启用扩展」被拦下', enableEvent.defaultPrevented);
+
+    // 5) Shift + 点击 → 强制放行
+    const pass = new window.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true });
+    deleteBtn.dispatchEvent(pass);
+    ok('Shift + 点击可以强制放行', !pass.defaultPrevented);
+
+    // 6) 正常聊天请求永不受影响
     await window.fetch('/api/backends/chat-completions/generate', { method: 'POST', body: '{}' });
     eq('正常生成请求照常放行', sent.length, 1);
 
-    // 3) 生成中被点「删除扩展」→ 拦下
-    const btn = info.querySelector('.btn_delete');
-    const blocked = new window.MouseEvent('click', { bubbles: true, cancelable: true });
-    btn.dispatchEvent(blocked);
-    ok('普通点击被就地拦下', blocked.defaultPrevented);
-
-    // 4) 按住 Shift 点 → 放行
-    const pass = new window.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true });
-    btn.dispatchEvent(pass);
-    ok('Shift + 点击可以强制放行', !pass.defaultPrevented);
-
-    // 5) 生成结束之后 → 同一类请求照常放行，不影响正常使用
+    // 7) 生成结束 → 删除按钮放行
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});
-    await window.fetch('/api/extensions/update', { method: 'POST', body: '{}' });
-    eq('生成结束就不再拦了', sent.length, 2);
+    const afterStop = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    deleteBtn.dispatchEvent(afterStop);
+    ok('生成结束就不再拦了', !afterStop.defaultPrevented);
+
+    delete extensionSettingsStub['generation-guardian'];
+    delete extensionSettingsStub['extension_hot_reload'];
+    restoreConsole();
+}
+
+/* 21：其它扩展（claude-web / story-oracle / kimi）会在自己认定的时机直接 location.reload()，
+   拦不住 —— 但任何导航前浏览器必定触发 beforeunload，我们要在这一刻把草稿刷到最新。 */
+async function scenarioUnloadBeforeForeignReload() {
+    console.log('\n[21] 别的扩展突然 location.reload() 时，beforeunload 那一刻草稿是最新的');
+    captureConsole();
+    storage.clear();
+    extensionSettingsStub['generation-guardian'] = { enabled: true, blockReload: true, autoRestore: false };
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    // 首批字，间隔还没到，正常不会立刻落盘
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '夜色很静。');
+    eq('间隔没到之前还没落盘', readSnapshots().length, 0);
+
+    // 别的扩展直接刷新（酒馆的 location.reload 也会走到这里）→ 先触发 beforeunload
+    window.dispatchEvent(new window.Event('beforeunload'));
+    const saved = readSnapshots();
+    eq('beforeunload 立刻落了一次盘', saved.length, 1);
+    ok('落盘内容就是最新那批字', saved[0].text.includes('夜色很静。'), saved[0].text);
 
     delete extensionSettingsStub['generation-guardian'];
     restoreConsole();
@@ -1116,6 +1160,7 @@ async function main() {
     await scenarioStaleGenerationRelease();
     await scenarioAutoRestore();
     await scenarioReloadShield();
+    await scenarioUnloadBeforeForeignReload();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {
