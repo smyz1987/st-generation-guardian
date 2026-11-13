@@ -17,3 +17,4 @@ desktop.ini
 
 # 测试沙盒运行时复制进去的扩展副本
 tests/sandbox/scripts/extensions/third-party/
+*.report.txt
