@@ -70,6 +70,8 @@ const EVENT_TYPES = {
     GENERATION_STOPPED: 'generation_stopped',
     GENERATION_ENDED: 'generation_ended',
     STREAM_TOKEN_RECEIVED: 'stream_token_received',
+    CHARACTER_MESSAGE_RENDERED: 'character_message_rendered',
+    USER_MESSAGE_RENDERED: 'user_message_rendered',
 };
 
 function makeEventSource() {
@@ -314,7 +316,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.6 版本号', window.GenerationGuardian?.version === '1.3.6');
+    ok('调试入口暴露了 1.3.7 版本号', window.GenerationGuardian?.version === '1.3.7');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -507,7 +509,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.6');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.7');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -1278,13 +1280,23 @@ async function scenarioHugeDraft() {
 
     // 模拟刷新回来（同一个聊天），点「接回」
     const ctx2 = createWorld({ chat, chatId: 'HugeChat' });
+    const rendered = [];
+    ctx2.eventSource.on('character_message_rendered', (id, type) => rendered.push([id, type]));
+    const genCalls = [];
+    window.fetch = (input) => {
+        const url = String(input?.url || input);
+        if (url.includes('chat-completions')) {
+            genCalls.push(url);
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ([]) });
+    };
     await bootExtension();
     await signalReady(ctx2);
     await sleep(800);
     ok('恢复卡片出现了', panelVisible());
     const before = chat.length;
     document.getElementById('gg-btn-recover').click();
-    await sleep(200);
+    await sleep(250);
 
     eq('聊天里多了一条', chat.length, before + 1);
     const landed = chat[chat.length - 1];
@@ -1292,6 +1304,18 @@ async function scenarioHugeDraft() {
     eq('接回来的字数一样多', String(landed.mes || '').length, big.length);
     ok('接回来的内容逐字一致', String(landed.mes || '') === big);
     eq('接回后不再留同一份草稿', readSnapshots().length, 0);
+
+    // 渲染链路 + 额度
+    eq('接回没有发任何生成请求（不额外扣额度）', genCalls.length, 0);
+    ok('接回后补发了「这条渲染好了」事件（状态栏/变量类扩展靠它）',
+        rendered.length === 1 && rendered[0][0] === before, JSON.stringify(rendered));
+    ok('补发的事件带了来源标记，扩展能认出是自己人',
+        String(rendered[0]?.[1] || '').includes('generation-guardian'), String(rendered[0]?.[1]));
+    ok('消息对象带齐了 swipe 字段，右滑和重生成都正常',
+        Array.isArray(landed.swipes) && landed.swipes[0] === big && typeof landed.swipe_id === 'number',
+        JSON.stringify({ swipes: landed.swipes?.length, id: landed.swipe_id }));
+    ok('正文存的是原始 markdown / HTML，没有被转义成纯文本',
+        String(landed.mes) === big);
 
     delete extensionSettingsStub['generation-guardian'];
     restoreConsole();

@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.6';
+const VERSION = '1.3.7';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -82,6 +82,9 @@ const DEFAULT_SETTINGS = {
     stallSeconds: STALL_WATCHDOG_MS / 1000,
     // 安静模式：正常生成完就什么提示都别弹，只有真被打断才出声
     quiet: true,
+    // 接回后补发一次 CHARACTER_MESSAGE_RENDERED，让状态栏 / 变量 / TTS / 翻译这类
+    // 挂在「消息渲染完成」上的扩展认得这条刚接回来的消息
+    notifyRenderers: true,
 };
 
 /* ------------------------------------------------------------------ *
@@ -1416,6 +1419,40 @@ function normalizeMessageFields(node, snapshot, ctx) {
     return node;
 }
 
+/**
+ * 接回之后补一次「这条角色消息渲染完了」事件。
+ *
+ * 酒馆的 addOneMessage() 只负责画 DOM（走的是和正常生成完全同一套
+ * getMessageTextHTML → messageFormatting，所以 markdown / 自定义 HTML / 正则都照常），
+ * 但它**不会** emit CHARACTER_MESSAGE_RENDERED —— 那个事件正常只在 Generate 流程里发。
+ * 而状态栏、变量、思维链标签、TTS、自动翻译这类扩展都挂在这个事件上，
+ * 所以不补这一下，接回来的那条会「正文有、状态栏没贴」。
+ */
+let eventTypesRef = null;
+let eventSourceRef = null;
+
+function notifyRenderers(ctx, messageId, type = 'generation-guardian') {
+    if (!settings().notifyRenderers) {
+        return;
+    }
+    try {
+        const events = ctx?.eventTypes || ctx?.event_types || eventTypesRef || globalThis.event_types;
+        const source = ctx?.eventSource || eventSourceRef || globalThis.eventSource;
+        if (!events || !source || typeof source.emit !== 'function') {
+            return;
+        }
+        const name = events.CHARACTER_MESSAGE_RENDERED;
+        if (!name) {
+            return;
+        }
+        Promise.resolve(source.emit(name, messageId, type)).catch((error) => {
+            console.warn(TAG, 'notifyRenderers failed', error);
+        });
+    } catch (error) {
+        console.warn(TAG, 'notifyRenderers failed', error);
+    }
+}
+
 async function doResume(snapshot, { thenPrompt = false } = {}) {
     hidePanel();
 
@@ -1449,6 +1486,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         anchor.mes = `${base}${text}`;
         normalizeMessageFields(anchor, snapshot, ctx);
         updateMessageInDom(ctx, anchorIndex, anchor);
+        notifyRenderers(ctx, anchorIndex);
         const saved = await saveChatQuiet(ctx);
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
@@ -1471,6 +1509,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         extra.mes = text;
         normalizeMessageFields(extra, snapshot, ctx);
         updateMessageInDom(ctx, extraIndex, extra);
+        notifyRenderers(ctx, extraIndex);
         const saved = await saveChatQuiet(ctx);
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
@@ -1505,6 +1544,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
             throw new Error('addOneMessage unavailable');
         }
         ctx.addOneMessage(node, { type: 'append' });
+        notifyRenderers(ctx, chat.length - 1);
         const saved = await saveChatQuiet(ctx);
         if (typeof ctx.scrollChatToBottom === 'function') {
             ctx.scrollChatToBottom();
@@ -1565,6 +1605,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
 
@@ -1797,6 +1838,7 @@ function mountSettings(retry = 0) {
     el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
     el('gg-set-badge').checked = Boolean(s.showBadge);
     el('gg-set-quiet').checked = s.quiet !== false;
+    el('gg-set-notify').checked = s.notifyRenderers !== false;
     el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-autorestore').checked = Boolean(s.autoRestore);
     el('gg-set-prompt').value = resumePromptText();
@@ -1886,6 +1928,10 @@ function mountSettings(retry = 0) {
     });
     el('gg-set-quiet').addEventListener('change', (event) => {
         s.quiet = Boolean(event.target.checked);
+        persistSettings();
+    });
+    el('gg-set-notify').addEventListener('change', (event) => {
+        s.notifyRenderers = Boolean(event.target.checked);
         persistSettings();
     });
     el('gg-set-badge').addEventListener('change', (event) => {
@@ -2019,6 +2065,8 @@ function initOnce() {
 
     const ctx = getContext();
     const events = ctx.eventTypes || ctx.event_types;
+    eventTypesRef = events;
+    eventSourceRef = ctx.eventSource;
 
     try {
         // 每个 handler 都套一层 try/catch：我这里抛异常会顺着酒馆的事件链往上炸，
