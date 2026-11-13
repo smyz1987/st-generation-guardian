@@ -204,6 +204,10 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
     };
 
     globalThis.__ST = ctx;
+    // 默认按「手动接回」模式跑，只有专门测自动补回的场景才打开 autoRestore
+    if (!extensionSettingsStub['generation-guardian']) {
+        extensionSettingsStub['generation-guardian'] = { autoRestore: false };
+    }
     return ctx;
 }
 
@@ -310,7 +314,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.0 版本号', window.GenerationGuardian?.version === '1.3.0');
+    ok('调试入口暴露了 1.3.1 版本号', window.GenerationGuardian?.version === '1.3.1');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -497,11 +501,13 @@ async function scenarioSettingsPanel() {
     ok('有「拦截刷新」开关', Boolean(document.getElementById('gg-set-block')));
     ok('有「拦住会刷新的扩展操作」开关', Boolean(document.getElementById('gg-set-ops')));
     ok('有「显示徽标」开关', Boolean(document.getElementById('gg-set-badge')));
+    ok('有「被打断自动补回聊天」开关', Boolean(document.getElementById('gg-set-autorestore')));
+    ok('主线指令按钮文案改对了', document.getElementById('gg-set-preset-main').textContent === '用主线指令');
     ok('有「续写直接发送」开关', Boolean(document.getElementById('gg-set-autosend')));
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.0');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.1');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -541,6 +547,7 @@ async function scenarioResumePrompt() {
     extensionSettingsStub['generation-guardian'] = {
         enabled: true,
         blockReload: true,
+        autoRestore: false,
         resumePrompt: '继续生成上一个番外，衔接上文末尾，不要从头开始。',
     };
 
@@ -877,6 +884,7 @@ async function scenarioPromptFillOnly() {
     extensionSettingsStub['generation-guardian'] = {
         enabled: true,
         blockReload: true,
+        autoRestore: false,
         resumePrompt: '继续生成上一轮剧情，衔接上文末尾，不要从头开始。',
         autoSend: false,
     };
@@ -956,6 +964,54 @@ async function scenarioStaleGenerationRelease() {
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
+async function scenarioAutoRestore() {
+    console.log('\n[19] 被打断 → 自动补回聊天（不用点「接回」）');
+    captureConsole();
+    storage.clear();
+    extensionSettingsStub['generation-guardian'] = {
+        enabled: true,
+        blockReload: true,
+        autoRestore: true,
+        resumePrompt: '继续生成上一轮剧情，衔接上文末尾，不要从头开始。',
+    };
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    const full = '她抬起头，看着你笑了。\n*“等很久了吧。”*';
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, full);
+    pagehide(ctx);
+    eq('草稿先落盘', readSnapshots().length, 1);
+
+    // 页面被杀 / 刷新回来
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(900);
+
+    eq('自动补回：草稿直接变成聊天里的一轮', chat.length, 3);
+    eq('补回的内容就是完整草稿', chat[2]?.mes, full);
+    ok('补回后确实存了聊天', ctx2.__calls.saveChat >= 1);
+    eq('草稿从待恢复列表里清掉', readSnapshots().length, 0);
+    ok('卡片切成「已自动补回」', document.getElementById('gg-recover-title').textContent.includes('已自动补回'), document.getElementById('gg-recover-title').textContent);
+    ok('给了「撤销补回」按钮', !document.getElementById('gg-btn-undo').classList.contains('gg-hidden'));
+    eq('没有替你发任何请求', ctx2.__calls.generate.length, 0);
+
+    document.getElementById('gg-btn-undo').click();
+    await sleep(140);
+    eq('撤销后那条从聊天里拿掉', chat.length, 2);
+    eq('撤销后草稿回来了', readSnapshots().length, 1);
+    eq('撤销过的草稿打了标记，之后不会再自动补回', readSnapshots()[0]?.autoSuppressed, true);
+
+    delete extensionSettingsStub['generation-guardian'];
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 /* ------------------------------------------------------------------ *
  * 入口
  * ------------------------------------------------------------------ */
@@ -982,6 +1038,7 @@ async function main() {
     await scenarioSaveChatFailure();
     await scenarioPromptFillOnly();
     await scenarioStaleGenerationRelease();
+    await scenarioAutoRestore();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

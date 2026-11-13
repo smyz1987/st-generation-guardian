@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -61,6 +61,8 @@ const DEFAULT_SETTINGS = {
     resumePrompt: DEFAULT_RESUME_PROMPT,
     // 面板配色主题
     theme: DEFAULT_THEME,
+    // 被打断时直接把草稿补回聊天（写进聊天记录并保存），不用手动点「接回」
+    autoRestore: true,
     // 生成中是否同时拦住「启用 / 禁用 / 更新 / 删除 / 清理」这类会 location.reload() 的扩展操作
     blockExtensionOps: true,
     // 生成中是否显示「已保存 N 字」的浮动徽标
@@ -765,6 +767,79 @@ function guardReloadProneClick(event) {
  * 界面：状态徽标
  * ------------------------------------------------------------------ */
 
+/* 卡片有两种形态：
+   manual   —— 还没接回，给你「接回 / 续写 / 复制 / 丢弃」
+   restored —— 已经自动补回聊天了，只留「续写 / 撤销补回」 */
+let panelMode = 'manual';
+let lastAutoRestore = null;
+
+function setPanelButtons(mode) {
+    const restored = mode === 'restored';
+    for (const id of ['gg-btn-recover', 'gg-btn-prompt', 'gg-btn-textarea', 'gg-btn-discard']) {
+        el(id)?.classList.toggle('gg-hidden', restored);
+    }
+    el('gg-btn-undo')?.classList.toggle('gg-hidden', !restored);
+}
+
+function showRestoredCard(snapshot) {
+    ensureUI();
+    panelMode = 'restored';
+    setPanelButtons('restored');
+    el('gg-recover-title').textContent = '已自动补回这一轮';
+    el('gg-recover-meta').textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · 已写进聊天并保存 · ${snapshot.text.length} 字${snapshot.truncated ? '（过长已截断）' : ''}`;
+
+    const preview = el('gg-recover-preview');
+    preview.textContent = snapshot.text.length > 1200
+        ? `……（前面已生成的部分）\n${snapshot.text.slice(-1200)}`
+        : snapshot.text;
+    preview.scrollTop = preview.scrollHeight;
+
+    setFoot('这条已经是一轮完整的回复，写在聊天里了，直接点酒馆的「继续生成」就能往下玩。「续写」会替你发一条主线指令（多一次请求）。');
+    el('gg-btn-recover-write').classList.add('gg-primary');
+    el('gg-panel').classList.remove('gg-hidden');
+}
+
+/** 撤销自动补回：把那条从聊天里拿掉，草稿放回「已保存草稿」，回到手动模式 */
+async function undoAutoRestore() {
+    const record = lastAutoRestore;
+    lastAutoRestore = null;
+    hidePanel();
+    if (!record) {
+        return;
+    }
+
+    const ctx = getContext();
+    const chat = ctx.chat || [];
+    let index = record.index;
+    if (!Number.isInteger(index) || index < 0 || index >= chat.length || String(chat[index]?.mes || '') !== record.text) {
+        index = chat.findIndex((message) => String(message?.mes || '') === record.text);
+    }
+
+    if (index >= 0 && index < chat.length) {
+        try {
+            if (typeof ctx.deleteMessage === 'function') {
+                ctx.deleteMessage(index);
+            }
+        } catch (error) {
+            console.warn(TAG, 'delete restored message failed', error);
+        }
+        if (String(chat[index]?.mes || '') === record.text) {
+            chat.splice(index, 1);
+        }
+        await saveChatQuiet(ctx);
+        if (typeof ctx.scrollChatToBottom === 'function') {
+            ctx.scrollChatToBottom();
+        }
+    }
+
+    // 草稿还回去，免得撤销一下就把内容弄丢了
+    // 打上 autoSuppressed：刷新后不会再自动补回这条，只弹手动卡片
+    if (record.snapshot) {
+        upsertSnapshot({ ...record.snapshot, autoSuppressed: true, updatedAt: Date.now() });
+    }
+    toast('已撤销补回，草稿还在「已保存草稿」里', 'info');
+}
+
 function ensureUI() {
     if (el('gg-badge')) {
         return;
@@ -782,7 +857,7 @@ function ensureUI() {
     panel.innerHTML = `
         <div class="gg-card">
             <div class="gg-head">
-                <span class="gg-title">检测到未完成的回复</span>
+                <span class="gg-title" id="gg-recover-title">检测到未完成的回复</span>
                 <button type="button" class="gg-icon-btn" id="gg-btn-close" title="收起">✕</button>
             </div>
             <div class="gg-meta" id="gg-recover-meta"></div>
@@ -793,6 +868,7 @@ function ensureUI() {
                 <button type="button" class="gg-btn" id="gg-btn-prompt">复制指令</button>
                 <button type="button" class="gg-btn" id="gg-btn-textarea">放入输入框</button>
                 <button type="button" class="gg-btn gg-danger" id="gg-btn-discard">丢弃</button>
+                <button type="button" class="gg-btn gg-danger gg-hidden" id="gg-btn-undo">撤销补回</button>
             </div>
             <div class="gg-foot" id="gg-recover-foot"></div>
         </div>`;
@@ -807,9 +883,17 @@ function ensureUI() {
         }
     });
     el('gg-btn-recover-write').addEventListener('click', () => {
+        if (panelMode === 'restored') {
+            hidePanel();
+            sendResumePrompt();
+            return;
+        }
         if (pendingSnapshot) {
             resumeSnapshot(pendingSnapshot, { thenPrompt: true });
         }
+    });
+    el('gg-btn-undo').addEventListener('click', () => {
+        undoAutoRestore();
     });
     el('gg-btn-prompt').addEventListener('click', async () => {
         const prompt = resumePromptText();
@@ -838,6 +922,9 @@ function ensureUI() {
 
 function showPanel(snapshot) {
     ensureUI();
+    panelMode = 'manual';
+    setPanelButtons('manual');
+    el('gg-recover-title').textContent = '检测到未完成的回复';
     const panel = el('gg-panel');
     const meta = el('gg-recover-meta');
     const preview = el('gg-recover-preview');
@@ -853,6 +940,7 @@ function showPanel(snapshot) {
 
     const resumeBtn = el('gg-btn-recover');
     const resumeWriteBtn = el('gg-btn-recover-write');
+    resumeWriteBtn.classList.remove('gg-primary');
     const textareaBtn = el('gg-btn-textarea');
     const cannotResume = snapshot.type === 'swipe' || snapshot.type === 'impersonate';
     resumeBtn.classList.toggle('gg-hidden', cannotResume);
@@ -915,7 +1003,7 @@ function matchesAnchor(snapshot) {
     return Boolean(draft) && draft.startsWith(extraMes) && draft.length > extraMes.length;
 }
 
-function scanForRecovery() {
+async function scanForRecovery() {
     ensureUI();
     const key = currentChatKey();
 
@@ -936,7 +1024,33 @@ function scanForRecovery() {
     }
 
     candidates.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-    pendingSnapshot = candidates[0];
+    const top = candidates[0];
+
+    // 被打断时默认直接把草稿补回聊天，写进聊天记录并保存 ——
+    // 这样刷新回来就跟「这一轮确实生成过」一样，可以接着往下玩。
+    // 「换一条」「替我说话」不自动处理：它们只能塞进输入框，会顶掉你正在打的字。
+    const autoEligible = top.type !== 'swipe' && top.type !== 'impersonate' && !top.autoSuppressed;
+    if (settings().enabled && settings().autoRestore && autoEligible && !activelyGenerating() && !resuming) {
+        const result = await resumeSnapshot(top, { thenPrompt: false });
+        if (result && result.mode === 'append') {
+            // 新插一条进聊天 → 给「撤销补回」留个记录
+            lastAutoRestore = { index: result.index, text: String(top.text || ''), chatKey: key, snapshot: top };
+            showRestoredCard(top);
+            toast(`已把被打断的 ${String(top.text || '').length} 字自动补回聊天`, 'success');
+            return;
+        }
+        if (result && (result.mode === 'completeHalf' || result.mode === 'anchor')) {
+            // 补进原有那条消息里，不再弹卡片（撤销会把那条整条删掉，风险太大）
+            hidePanel();
+            return;
+        }
+        if (result && result.mode === 'textarea') {
+            // 已经放进输入框了，不再弹卡片
+            return;
+        }
+    }
+
+    pendingSnapshot = top;
     showPanel(pendingSnapshot);
 }
 
@@ -1007,22 +1121,22 @@ let resuming = false;
 
 async function resumeSnapshot(snapshot, { thenPrompt = false } = {}) {
     if (!snapshot) {
-        return;
+        return null;
     }
 
     // 幂等保护：双击按钮 / 恢复过程中再次触发，都只执行一次
     if (resuming) {
-        return;
+        return null;
     }
     if (!readAll().some((item) => item.id === snapshot.id)) {
         pendingSnapshot = null;
         hidePanel();
-        return;
+        return null;
     }
     resuming = true;
 
     try {
-        await doResume(snapshot, { thenPrompt });
+        return await doResume(snapshot, { thenPrompt });
     } finally {
         resuming = false;
     }
@@ -1080,7 +1194,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
     if (!text.trim()) {
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
-        return;
+        return { mode: 'none' };
     }
 
     // 换一条 / 替我说话 → 只能放回输入框
@@ -1089,7 +1203,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
         toast('已把草稿放进输入框（这类生成没法自动续写）', 'info');
-        return;
+        return { mode: 'textarea' };
     }
 
     const anchorIndex = snapshot.chatLen - 1;
@@ -1113,7 +1227,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         if (thenPrompt) {
             sendResumePrompt();
         }
-        return;
+        return { mode: 'anchor', index: anchorIndex };
     }
 
     // 聊天里留着一条被中断的半截消息，而草稿是它的完整版 → 直接补全那条，不新增
@@ -1135,7 +1249,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         if (thenPrompt) {
             sendResumePrompt();
         }
-        return;
+        return { mode: 'completeHalf', index: extraIndex };
     }
 
     // 普通回复 → 把草稿作为一条新的角色消息塞回聊天
@@ -1187,7 +1301,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
         toast('写回聊天失败，草稿已放进输入框，请手动处理', 'warning');
-        return;
+        return { mode: 'textarea', failed: true };
     }
 
     removeSnapshot(snapshot.id);
@@ -1196,6 +1310,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
     if (thenPrompt) {
         sendResumePrompt();
     }
+    return { mode: 'append', index: chat.length - 1 };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1217,6 +1332,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 更新 / 删除 / 清理）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
 
@@ -1224,7 +1340,7 @@ const SETTINGS_HTML = `
         <div class="gg-sub">续写指令</div>
         <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
         <div class="gg-row">
-            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用剧情指令</button>
+            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用主线指令</button>
             <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
         </div>
         <div class="gg-hint">点「续写」时发出去的就是这一条，可以改成自己习惯的说法。</div>
@@ -1261,6 +1377,7 @@ function mountSettings() {
     el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
     el('gg-set-badge').checked = Boolean(s.showBadge);
     el('gg-set-autosend').checked = Boolean(s.autoSend);
+    el('gg-set-autorestore').checked = Boolean(s.autoRestore);
     el('gg-set-prompt').value = resumePromptText();
     el('gg-set-max').value = String(maxSnapshots());
     el('gg-set-days').value = String(keepDays());
@@ -1335,6 +1452,10 @@ function mountSettings() {
         s.autoSend = Boolean(event.target.checked);
         persistSettings();
     });
+    el('gg-set-autorestore').addEventListener('change', (event) => {
+        s.autoRestore = Boolean(event.target.checked);
+        persistSettings();
+    });
     el('gg-set-ops').addEventListener('change', (event) => {
         s.blockExtensionOps = Boolean(event.target.checked);
         persistSettings();
@@ -1377,7 +1498,7 @@ function mountSettings() {
         persistSettings();
         toast(`续写指令已换成「${label}」`, 'info');
     };
-    el('gg-set-preset-main').addEventListener('click', () => applyPreset(RESUME_PRESETS.main, '剧情'));
+    el('gg-set-preset-main').addEventListener('click', () => applyPreset(RESUME_PRESETS.main, '主线'));
     el('gg-set-preset-extra').addEventListener('click', () => applyPreset(RESUME_PRESETS.extra, '番外'));
     el('gg-btn-clear').addEventListener('click', () => {
         writeAll([]);
@@ -1451,7 +1572,10 @@ let initialized = false;
 
 function scanForRecoverySafe(options = {}) {
     try {
-        scanForRecovery(options);
+        const result = scanForRecovery(options);
+        if (result && typeof result.catch === 'function') {
+            result.catch((error) => console.warn(TAG, 'scan failed', error));
+        }
     } catch (error) {
         console.warn(TAG, 'scan failed', error);
     }
