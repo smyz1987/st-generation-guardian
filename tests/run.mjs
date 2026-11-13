@@ -391,7 +391,9 @@ async function scenarioContinueType() {
     document.getElementById('gg-btn-recover').click();
     await sleep(60);
     eq('没有新增消息', chat.length, 3);
-    eq('拼回原消息', chat[2]?.mes, '前半段。后半段补上来了。');
+    // 酒馆续写默认会在原文和新正文之间插一个空格（continue_postfix 的默认值 SPACE），
+    // 接回也得照它一样，否则会变成「前半段。后半段」把句子粘在一起
+    eq('拼回原消息（保留酒馆续写插的那个空格）', chat[2]?.mes, '前半段。 后半段补上来了。');
     eq('「接回」不再发任何请求', ctx2.__calls.generate.length, 0);
     eq('调用了 updateMessageBlock 重渲染', ctx2.__calls.updateMessageBlock, 1);
 
@@ -1328,6 +1330,88 @@ async function scenarioHugeDraft() {
     restoreConsole();
 }
 
+async function scenarioSwipeLanded() {
+    console.log('\n[24] 「换一条」其实已经写完 → 判为落地，刷新不再弹卡片');
+    captureConsole();
+    storage.clear();
+
+    const draft = '另一种写法的整段开头，然后是中段，最后是收尾的那一句。';
+    const chat = [
+        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
+        { name: '易湘琪', is_user: true, is_system: false, mes: '你抬头了吗', send_date: '2026-11-13T08:01:00.000Z' },
+        {
+            name: '沈砚', is_user: false, is_system: false, mes: '原来那一条。', send_date: '2026-11-13T08:02:00.000Z',
+            swipe_id: 0, swipes: ['原来那一条。'], swipe_info: [{ send_date: '2026-11-13T08:02:00.000Z' }],
+        },
+    ];
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'swipe', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, draft);
+    pagehide(ctx);
+    eq('换一条的草稿先落盘', readSnapshots().length, 1);
+
+    // 酒馆把新 swipe 写进去了：消息数不变，mes 换成新文本，swipes 里多一条
+    chat[2].mes = draft;
+    chat[2].swipes.push(draft);
+    chat[2].swipe_id = 1;
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(900);
+
+    eq('判为已写完，草稿被清掉', readSnapshots().length, 0);
+    ok('不再弹「未完成的回复」', !panelVisible());
+
+    delete extensionSettingsStub['generation-guardian'];
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioEmptyPlaceholder() {
+    console.log('\n[25] 刷新后那条空占位还在 → 接回填进它，不追加一条');
+    captureConsole();
+    storage.clear();
+
+    const draft = '她抬头看过来，雪落在睫毛上，一句话都没说。';
+    const chat = [
+        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
+        { name: '易湘琪', is_user: true, is_system: false, mes: '你抬头了吗', send_date: '2026-11-13T08:01:00.000Z' },
+    ];
+    const ctx = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    // 酒馆流式一开始会先 push 一条空占位，再往里喂 token
+    chat.push({ name: '沈砚', is_user: false, is_system: false, mes: '', send_date: '2026-11-13T08:02:00.000Z' });
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, draft);
+    pagehide(ctx);
+    eq('草稿已落盘', readSnapshots().length, 1);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(900);
+
+    ok('弹出恢复卡片', panelVisible());
+    document.getElementById('gg-btn-recover').click();
+    await sleep(80);
+
+    eq('聊天条数没变（填进空占位，没有追加）', chat.length, 3);
+    eq('空占位被填成草稿全文', chat[2]?.mes, draft);
+    eq('没有走 addOneMessage 追加新消息', ctx2.__calls.addOneMessage, 0);
+    eq('草稿被清掉', readSnapshots().length, 0);
+
+    delete extensionSettingsStub['generation-guardian'];
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1355,6 +1439,8 @@ async function main() {
     await scenarioUnloadBeforeForeignReload();
     await scenarioQuietFinish();
     await scenarioHugeDraft();
+    await scenarioSwipeLanded();
+    await scenarioEmptyPlaceholder();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

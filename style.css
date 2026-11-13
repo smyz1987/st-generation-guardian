@@ -994,6 +994,18 @@ body.gg-theme-lotus,
         padding: 17px 14px 14px;
     }
 
+    /* 手机上把玻璃调轻、漂移停掉：32px 模糊在中端机上一边滚聊天一边算会掉帧，
+       26 秒的板身反光横移也一直在触发重绘。这里降到 14px，静态反光保留。 */
+    #gg-settings .gg-sheet,
+    #gg-panel .gg-card {
+        -webkit-backdrop-filter: blur(14px) saturate(1.4);
+        backdrop-filter: blur(14px) saturate(1.4);
+    }
+
+    #gg-settings .gg-sheet::before {
+        animation: none;
+    }
+
     #gg-settings .gg-check {
         padding: 13px 2px;
         font-size: 13px;

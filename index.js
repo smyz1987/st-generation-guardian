@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.10';
+const VERSION = '1.3.11';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -371,6 +371,19 @@ function chatDraftLanded(snapshot) {
                 return false;
             }
             return probes.some((probe) => mes.includes(probe));
+        }
+        // 情形三：换一条 —— 消息总数不变，新文本进了那条消息的 swipes 数组，
+        // 而 mes 也已经被换成新那条。不判这个的话「换一条」的草稿永远落地不了，
+        // 每次刷新都会弹一张「检测到未完成的回复」，其实早写完了。
+        if (snapshot.type === 'swipe') {
+            const pool = [String(anchor?.mes || '')];
+            if (Array.isArray(anchor?.swipes)) {
+                for (const item of anchor.swipes) {
+                    pool.push(String(item || ''));
+                }
+            }
+            return pool.some((candidate) => candidate.trim().length >= text.length * 0.9
+                && probes.some((probe) => candidate.includes(probe)));
         }
     }
 
@@ -1226,6 +1239,12 @@ function matchesAnchor(snapshot) {
 }
 
 async function scanForRecovery() {
+    // 插件被关掉的时候什么都不做：不弹卡片、不自动补回，也不去动她的聊天记录。
+    if (!settings().enabled) {
+        pendingSnapshot = null;
+        hidePanel();
+        return;
+    }
     // 扩展被重复加载 / 两个标签页同时在跑时，别让两次扫描互相踩（互相 hidePanel / 重复补回）
     const guard = globalThis.__ggScanRunning;
     if (guard && Date.now() - Number(guard) < 3000) {
@@ -1297,6 +1316,13 @@ function updateMessageInDom(ctx, index, message) {
     try {
         if (typeof ctx.updateMessageBlock === 'function') {
             ctx.updateMessageBlock(index, message, { rerenderMessage: true });
+            // updateMessageBlock 只重绘 .mes_text，不会重算 swipe 计数 / 按钮，
+            // 接回来的那条如果不刷新一下，右下角会一直显示旧条数
+            try {
+                ctx.swipe?.refresh?.();
+            } catch (error) {
+                console.warn(TAG, 'swipe refresh failed', error);
+            }
             return true;
         }
     } catch (error) {
@@ -1379,6 +1405,33 @@ async function resumeSnapshot(snapshot, { thenPrompt = false } = {}) {
     } finally {
         resuming = false;
     }
+}
+
+/**
+ * 续写接回时该用的「原文前缀」。
+ *
+ * 酒馆续写把 `continue_mag` 加上 `oai_settings.continue_postfix`（默认是一个空格）
+ * 再续 token，最后写进聊天的是「原文 + 空格 + 新正文」。我们存下来的 baseMes 是原文
+ * （没有那个空格），所以直接 base + text 会把拼接处的空格吃掉，出现 "上一句下一句" 粘连。
+ * 这里在消息已经被写过的情况下，从消息里找出新正文的起点，把它之前的部分整个当前缀。
+ */
+function continuePrefix(anchorMes, base, text) {
+    const cur = String(anchorMes || '');
+    const safeBase = String(base || '');
+    const probe = String(text || '').slice(0, 16);
+    if (probe && cur.length > safeBase.length && cur.startsWith(safeBase)) {
+        const at = cur.indexOf(probe, safeBase.length);
+        if (at > 0 && at <= safeBase.length + 8) {
+            return cur.slice(0, at);
+        }
+    }
+    // 消息里还是原文（刷新后加载的是上一次保存的版本，酒馆还没把新正文写进去）。
+    // 酒馆续写默认会在原文和正文之间插一个空格（continue_postfix 的默认值 SPACE），
+    // 这里照它补一个，免得中英混排或英文单词被粘在一起。
+    if (safeBase && !/\s$/.test(safeBase) && !/^\s/.test(String(text || ''))) {
+        return `${safeBase} `;
+    }
+    return safeBase;
 }
 
 /**
@@ -1485,10 +1538,32 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
     const appendToAnchor = snapshot.type === 'continue'
         || (snapshot.type === 'regenerate' && anchorIsChar);
 
+    // 流式生成一开始，酒馆会先往 chat 里 push 一条占位消息再喂 token。
+    // 如果刷新回来这条占位还空着（正文一个字都没落），直接把草稿填进去，
+    // 千万别在后面再追加一条 —— 否则聊天里会多出一个空壳 + 一条正文。
+    if (anchorIsChar && chat.length === snapshot.chatLen && !String(anchor.mes || '').trim()) {
+        anchor.mes = text;
+        normalizeMessageFields(anchor, snapshot, ctx);
+        updateMessageInDom(ctx, anchorIndex, anchor);
+        notifyRenderers(ctx, anchorIndex);
+        const saved = await saveChatQuiet(ctx);
+        removeSnapshot(snapshot.id);
+        pendingSnapshot = null;
+        toast(saved
+            ? '已把草稿填回那条空消息'
+            : '已填回聊天，但保存聊天失败 —— 先别刷新页面', saved ? 'success' : 'warning');
+        if (thenPrompt) {
+            sendResumePrompt();
+        }
+        return { mode: 'anchor', index: anchorIndex };
+    }
+
     if (appendToAnchor && anchorIsChar) {
         // 原来是在续写同一条消息 → 把草稿接回那条消息
         const base = typeof snapshot.baseMes === 'string' ? snapshot.baseMes : '';
-        anchor.mes = `${base}${text}`;
+        // 酒馆续写会在原文和正文之间插一个 continue_postfix（默认是一个空格），
+        // 这里用这条消息真实的前缀，别把那个空格吃掉
+        anchor.mes = `${continuePrefix(anchor.mes, base, text)}${text}`;
         normalizeMessageFields(anchor, snapshot, ctx);
         updateMessageInDom(ctx, anchorIndex, anchor);
         notifyRenderers(ctx, anchorIndex);
@@ -1508,9 +1583,12 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
     const extraIndex = snapshot.chatLen;
     const extra = chat.length === snapshot.chatLen + 1 ? chat[extraIndex] : null;
     const extraMes = extra && !extra.is_user ? String(extra.mes || '').trim() : '';
+    // 这条占位一个正文字都没落（酒馆流式一开始 push 的空壳，刷新回来还在）→
+    // 直接把草稿填进它，别在后面再追加一条，否则会留下「空壳 + 正文」两份
+    const fillEmptyPlaceholder = Boolean(extra) && !extra.is_user && !extraMes;
     const canCompleteHalf = Boolean(extraMes) && text.startsWith(extraMes);
 
-    if (canCompleteHalf && extra) {
+    if ((canCompleteHalf || fillEmptyPlaceholder) && extra) {
         extra.mes = text;
         normalizeMessageFields(extra, snapshot, ctx);
         updateMessageInDom(ctx, extraIndex, extra);
@@ -1519,7 +1597,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
         toast(saved
-            ? '已把草稿补进那条被中断的消息'
+            ? (fillEmptyPlaceholder ? '已把草稿填回那条空消息' : '已把草稿补进那条被中断的消息')
             : '已补进聊天，但保存聊天失败 —— 先别刷新页面', saved ? 'success' : 'warning');
         if (thenPrompt) {
             sendResumePrompt();
@@ -1639,7 +1717,7 @@ const SETTINGS_HTML = `
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.4</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.11</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 
