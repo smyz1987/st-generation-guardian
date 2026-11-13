@@ -46,6 +46,8 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     blockReload: true,
     resumePrompt: DEFAULT_RESUME_PROMPT,
+    // 点「续写」后是否立刻替你发出去；关掉就只把指令填进输入框，自己改完按发送
+    autoSend: true,
 };
 
 /* ------------------------------------------------------------------ *
@@ -855,8 +857,8 @@ function resumePromptText() {
 }
 
 /**
- * 替你发一条接续指令。
- * 走的完全是酒馆的标准路径：写进输入框 → 调 Generate('normal')，
+ * 把接续指令放进输入框；按设置决定「直接替你发出去」还是「只填不发等你按发送」。
+ * 走的是酒馆的标准路径：写进输入框 → 调 Generate('normal')，
  * Generate 会自己读输入框、清空、把这条消息塞进聊天再请求。
  * 发送失败时把指令重新填回输入框 —— 因为 Generate 已经把框清空了，
  * 不填回去就等于「指令丢了」。
@@ -872,6 +874,12 @@ function sendResumePrompt() {
     }
 
     putToTextarea(prompt);
+
+    if (!settings().autoSend) {
+        toast('指令已放进输入框，改完按发送', 'info');
+        return;
+    }
+
     if (typeof ctx.generate === 'function') {
         Promise.resolve(ctx.generate('normal')).catch((error) => {
             // 这条是降级路径，不是致命错误，用 warn 记录即可
@@ -1088,7 +1096,8 @@ const SETTINGS_HTML = `
     <div class="gg-set-title">Generation Guardian · 生成守护</div>
     <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
     <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-    <div class="gg-set-label">续写指令（点「续写」时替你发这一条，可自己改）</div>
+    <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框，你自己改完再按发送）</span></label>
+    <div class="gg-set-label">续写指令（点「续写」时用这一条，可自己改；下面两个按钮一键换预设）</div>
     <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
     <div class="gg-row">
         <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用剧情指令</button>
@@ -1113,6 +1122,7 @@ function mountSettings() {
     const s = settings();
     el('gg-set-enabled').checked = Boolean(s.enabled);
     el('gg-set-block').checked = Boolean(s.blockReload);
+    el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-prompt').value = resumePromptText();
 
     el('gg-set-enabled').addEventListener('change', (event) => {
@@ -1138,6 +1148,10 @@ function mountSettings() {
         const value = String(event.target.value || '').trim();
         s.resumePrompt = value || DEFAULT_RESUME_PROMPT;
         event.target.value = s.resumePrompt;
+        persistSettings();
+    });
+    el('gg-set-autosend').addEventListener('change', (event) => {
+        s.autoSend = Boolean(event.target.checked);
         persistSettings();
     });
     const applyPreset = (text, label) => {
@@ -1271,7 +1285,7 @@ function initOnce() {
     setTimeout(scanForRecoverySafe, 600);
 
     window.GenerationGuardian = {
-        version: '1.2.0',
+        version: '1.2.1',
         settings: settings,
         snapshots: readAll,
         /** 内存里正在写的这条草稿（localStorage 写不进去时的逃生口，复制即可救回） */

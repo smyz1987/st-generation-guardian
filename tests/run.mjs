@@ -844,6 +844,46 @@ async function scenarioSaveChatFailure() {
     ok('保存失败没有炸出异常', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
+async function scenarioPromptFillOnly() {
+    console.log('\n[17] 关掉「直接发送」→ 点「续写」只把指令填进输入框，等你按发送');
+    captureConsole();
+    storage.clear();
+    extensionSettingsStub['generation-guardian'] = {
+        enabled: true,
+        blockReload: true,
+        resumePrompt: '继续生成上一轮剧情，衔接上文末尾，不要从头开始。',
+        autoSend: false,
+    };
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '他刚要开口，就被打断了。');
+    pagehide(ctx);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(700);
+    ok('卡片弹出', panelVisible());
+    eq('设置里默认勾着「直接发送」以外的状态被读到', document.getElementById('gg-set-autosend').checked, false);
+
+    document.getElementById('gg-btn-recover-write').click();
+    await sleep(80);
+
+    eq('草稿照样接回聊天', chat.length, 3);
+    eq('没有替你发请求', ctx2.__calls.generate.length, 0);
+    eq('指令在输入框里等你改', document.getElementById('send_textarea').value, '继续生成上一轮剧情，衔接上文末尾，不要从头开始。');
+
+    delete extensionSettingsStub['generation-guardian'];
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 /* ------------------------------------------------------------------ *
  * 入口
  * ------------------------------------------------------------------ */
@@ -868,6 +908,7 @@ async function main() {
     await scenarioStorageQuota();
     await scenarioPromptSendFailure();
     await scenarioSaveChatFailure();
+    await scenarioPromptFillOnly();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {
