@@ -21,11 +21,24 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.2.2';
+const VERSION = '1.3.0';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
 const FLUSH_INTERVAL_MS = 800;
+// 生成中超过这么久没有任何新 token，就认为这次生成其实已经死了，
+// 自动把「生成中」状态解开 —— 否则会一直拦着扩展操作、一直拦刷新，反而变成干扰。
+const GENERATION_STALE_MS = 5 * 60 * 1000;
+
+/* 四套主题。前三套按用户给的三张色卡配色，trianon 是原来的金线版本。
+   色号即图片上的取值，强调色 / 次色 / 深色用于边框、渐变和预览色点。 */
+const THEMES = {
+    trianon: { label: '特里亚农', en: 'Trianon', swatches: ['#c9a961', '#e2cb92', '#7a5f2b'] },
+    dusk: { label: '雪暮', en: 'Dusk Snow', swatches: ['#cd9fa0', '#f2c1a3', '#525871'] },
+    neon: { label: '霓虹街', en: 'Neon Street', swatches: ['#f1444e', '#ffae81', '#212934'] },
+    frost: { label: '霜岸', en: 'Frost Bank', swatches: ['#8ba3c5', '#f0ecdd', '#23354d'] },
+};
+const DEFAULT_THEME = 'trianon';
 const TAIL_HEAD_LEN = 60;
 // 单条草稿上限，防 localStorage 配额被打满后连新草稿都写不进去
 const MAX_DRAFT_CHARS = 1000000;
@@ -46,6 +59,8 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     blockReload: true,
     resumePrompt: DEFAULT_RESUME_PROMPT,
+    // 面板配色主题
+    theme: DEFAULT_THEME,
     // 生成中是否同时拦住「启用 / 禁用 / 更新 / 删除 / 清理」这类会 location.reload() 的扩展操作
     blockExtensionOps: true,
     // 生成中是否显示「已保存 N 字」的浮动徽标
@@ -98,6 +113,30 @@ function keepDaysMs() {
 /** 卡住判定时间（毫秒），0 表示关掉这个提示 */
 function stallMs() {
     return clampNumber(settings().stallSeconds, 0, 600, STALL_WATCHDOG_MS / 1000) * 1000;
+}
+
+/* ------------------------------------------------------------------ *
+ * 主题
+ * ------------------------------------------------------------------ */
+
+function themeKey() {
+    const value = String(settings().theme || '');
+    return Object.prototype.hasOwnProperty.call(THEMES, value) ? value : DEFAULT_THEME;
+}
+
+/** 把主题 class 挂到 body 上；只碰这 4 个 class，不动酒馆自己的任何东西 */
+function applyTheme() {
+    const body = document.body;
+    if (!body || !body.classList) {
+        return;
+    }
+    try {
+        for (const key of Object.keys(THEMES)) {
+            body.classList.toggle(`gg-theme-${key}`, key === themeKey());
+        }
+    } catch (error) {
+        console.warn(TAG, 'apply theme failed', error);
+    }
 }
 
 function persistSettings() {
@@ -416,13 +455,38 @@ let lastFlushAt = 0;
 let lastSavedText = '';
 let stallTimer = null;
 
+/**
+ * 「现在真的在生成吗」。
+ * 不能只看 generating 这个 flag：万一 GENERATION_ENDED 事件丢了，flag 会永远为真，
+ * 结果就是一直拦刷新、一直拦扩展按钮，正常操作全被挡住。
+ * 所以再加一条：草稿必须还在动（GENERATION_STALE_MS 内有过 token）。
+ */
+function activelyGenerating() {
+    if (!generating) {
+        return false;
+    }
+    if (!buffer) {
+        return false;
+    }
+    return Date.now() - Number(buffer.updatedAt || 0) < GENERATION_STALE_MS;
+}
+
+/** 生成状态卡死（结束事件丢了）时，把它解开，别让它继续挡路 */
+function releaseGeneration() {
+    generating = false;
+    buffer = null;
+    clearStallWatch();
+    disarmUnloadGuard();
+    updateBadge('');
+}
+
 function updateBadge(text) {
     const badge = el('gg-badge');
     const label = el('gg-badge-text');
     if (!badge || !label) {
         return;
     }
-    if (!settings().enabled || !generating || !settings().showBadge) {
+    if (!settings().enabled || !activelyGenerating() || !settings().showBadge) {
         badge.classList.add('gg-hidden');
         return;
     }
@@ -486,9 +550,17 @@ function armStallWatch() {
         }
         flushNow();
         const length = String(buffer.text || '').length;
+        // 太久没动静了：这不是「慢」，是这次生成已经死了（结束事件丢了）。
+        // 把状态解开，否则会一直拦刷新和扩展按钮，反倒影响正常使用。
+        if (Date.now() - Number(buffer.updatedAt || 0) > GENERATION_STALE_MS) {
+            releaseGeneration();
+            toast(`这条生成已经没动静了，已解除「生成中」状态，草稿已保住 ${length} 字`, 'warning');
+            return;
+        }
         if (length) {
             toast(`这条回复好像卡住了，已保住 ${length} 字草稿`, 'warning');
         }
+        armStallWatch();
     }, ms);
 }
 
@@ -628,7 +700,7 @@ function onGenerationFinished(reason) {
 let unloadGuardArmed = false;
 
 function unloadGuard(event) {
-    if (!generating) {
+    if (!activelyGenerating()) {
         return;
     }
     try {
@@ -676,7 +748,7 @@ const RELOAD_PRONE_SELECTOR = [
 ].join(', ');
 
 function guardReloadProneClick(event) {
-    if (!generating || !settings().enabled || !settings().blockReload || !settings().blockExtensionOps) {
+    if (!activelyGenerating() || !settings().enabled || !settings().blockReload || !settings().blockExtensionOps) {
         return;
     }
     const target = event.target;
@@ -906,7 +978,7 @@ function sendResumePrompt() {
     const ctx = getContext();
     const prompt = resumePromptText();
 
-    if (generating) {
+    if (activelyGenerating()) {
         putToTextarea(prompt);
         toast('酒馆正在生成中，指令已放进输入框，等这次写完按发送', 'warning');
         return;
@@ -1137,6 +1209,10 @@ const SETTINGS_HTML = `
 </div>
 <div class="inline-drawer-content">
     <div class="gg-sheet">
+        <div class="gg-sub">主题</div>
+        <div class="gg-themes" id="gg-themes"></div>
+
+        <div class="gg-diamond">◆</div>
         <div class="gg-sub">开关</div>
         <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
@@ -1190,6 +1266,45 @@ function mountSettings() {
     el('gg-set-days').value = String(keepDays());
     el('gg-set-stall').value = String(Math.round(stallMs() / 1000));
     el('gg-ver').textContent = VERSION;
+
+    const renderThemes = () => {
+        const host = el('gg-themes');
+        if (!host) {
+            return;
+        }
+        host.textContent = '';
+        const current = themeKey();
+        for (const [key, theme] of Object.entries(THEMES)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'gg-theme';
+            btn.dataset.theme = key;
+            btn.setAttribute('aria-pressed', String(key === current));
+            btn.title = `${theme.label} / ${theme.en}`;
+
+            const dots = document.createElement('span');
+            dots.className = 'gg-theme-dots';
+            for (const color of theme.swatches) {
+                const dot = document.createElement('i');
+                dot.style.background = color;
+                dots.appendChild(dot);
+            }
+            const name = document.createElement('span');
+            name.className = 'gg-theme-name';
+            name.textContent = theme.label;
+
+            btn.appendChild(dots);
+            btn.appendChild(name);
+            btn.addEventListener('click', () => {
+                s.theme = key;
+                persistSettings();
+                applyTheme();
+                renderThemes();
+            });
+            host.appendChild(btn);
+        }
+    };
+    renderThemes();
 
     el('gg-set-enabled').addEventListener('change', (event) => {
         s.enabled = Boolean(event.target.checked);
@@ -1352,11 +1467,20 @@ function initOnce() {
     const events = ctx.eventTypes || ctx.event_types;
 
     try {
-        ctx.eventSource.on(events.GENERATION_STARTED, onGenerationStarted);
-        ctx.eventSource.on(events.STREAM_TOKEN_RECEIVED, onStreamToken);
-        ctx.eventSource.on(events.GENERATION_STOPPED, () => onGenerationFinished('stopped'));
-        ctx.eventSource.on(events.GENERATION_ENDED, () => onGenerationFinished('ended'));
-        ctx.eventSource.on(events.CHAT_CHANGED, () => {
+        // 每个 handler 都套一层 try/catch：我这里抛异常会顺着酒馆的事件链往上炸，
+        // 影响别的扩展甚至影响聊天本身。绝不能让它发生。
+        const bind = (name, handler) => ctx.eventSource.on(name, (...args) => {
+            try {
+                handler(...args);
+            } catch (error) {
+                console.warn(TAG, 'handler failed', name, error);
+            }
+        });
+        bind(events.GENERATION_STARTED, onGenerationStarted);
+        bind(events.STREAM_TOKEN_RECEIVED, onStreamToken);
+        bind(events.GENERATION_STOPPED, () => onGenerationFinished('stopped'));
+        bind(events.GENERATION_ENDED, () => onGenerationFinished('ended'));
+        bind(events.CHAT_CHANGED, () => {
             setTimeout(scanForRecoverySafe, 120);
         });
     } catch (error) {
@@ -1382,6 +1506,7 @@ function initOnce() {
     document.addEventListener('click', guardReloadProneClick, true);
 
     ensureUI();
+    applyTheme();
     mountSettings();
     // 让刷新/重载后的恢复卡片晚一点出现，等聊天先渲染完
     setTimeout(scanForRecoverySafe, 600);
@@ -1392,7 +1517,7 @@ function initOnce() {
         snapshots: readAll,
         /** 内存里正在写的这条草稿（localStorage 写不进去时的逃生口，复制即可救回） */
         liveDraft: () => (buffer ? String(buffer.text || '') : ''),
-        isGenerating: () => generating,
+        isGenerating: () => activelyGenerating(),
         scan: scanForRecoverySafe,
         clear: () => writeAll([]),
         copy: copyText,

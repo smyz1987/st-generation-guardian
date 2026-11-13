@@ -1,14 +1,53 @@
-/* Generation Guardian — Trianon 风格（凡尔赛特里亚农宫：象牙纸、金线、衬线字） */
+/* Generation Guardian — 四套可切换主题（字体全部跟随酒馆全局设置） */
 
+/* ---------- 主题色板：色号取自参考图的实测取值 ---------- */
+
+body.gg-theme-trianon {
+    --gg-a: #c9a961;      /* 强调：凡尔赛金 */
+    --gg-a2: #e2cb92;     /* 次色：浅金 */
+    --gg-deep: #7a5f2b;   /* 深色 */
+    --gg-tint: #c9a961;
+    --gg-on: #261f16;     /* 主按钮上的字色 */
+}
+
+body.gg-theme-dusk {
+    --gg-a: #cd9fa0;      /* Rosewood */
+    --gg-a2: #f2c1a3;     /* Peaches & Cream */
+    --gg-deep: #525871;   /* Concrete */
+    --gg-tint: #857c91;   /* Warm Steel */
+    --gg-on: #37262c;
+}
+
+body.gg-theme-neon {
+    --gg-a: #f1444e;      /* Vermillion */
+    --gg-a2: #ffae81;     /* Honeydew */
+    --gg-deep: #212934;   /* Asphalt */
+    --gg-tint: #4b536b;   /* Blue Spruce */
+    --gg-on: #fff3ec;
+}
+
+body.gg-theme-frost {
+    --gg-a: #8ba3c5;      /* Frost Blue */
+    --gg-a2: #f0ecdd;     /* Moonlight */
+    --gg-deep: #23354d;   /* Storm */
+    --gg-tint: #495b7d;   /* Steel */
+    --gg-on: #0b1728;
+}
+
+/* 单页并排预览时用元素级属性覆盖（扩展本身不会设这个属性） */
+[data-gg-theme="trianon"] { --gg-a: #c9a961; --gg-a2: #e2cb92; --gg-deep: #7a5f2b; --gg-tint: #c9a961; --gg-on: #261f16; }
+[data-gg-theme="dusk"] { --gg-a: #cd9fa0; --gg-a2: #f2c1a3; --gg-deep: #525871; --gg-tint: #857c91; --gg-on: #37262c; }
+[data-gg-theme="neon"] { --gg-a: #f1444e; --gg-a2: #ffae81; --gg-deep: #212934; --gg-tint: #4b536b; --gg-on: #fff3ec; }
+[data-gg-theme="frost"] { --gg-a: #8ba3c5; --gg-a2: #f0ecdd; --gg-deep: #23354d; --gg-tint: #495b7d; --gg-on: #0b1728; }
+
+/* 派生色：声明在元素上，才能吃到 body 继承来的当前主题色 */
 #gg-badge,
 #gg-panel,
 #gg-settings {
-    --gg-gold: #c9a961;
-    --gg-gold-light: #e2cb92;
-    --gg-gold-line: rgba(201, 169, 97, 0.55);
-    --gg-gold-faint: rgba(201, 169, 97, 0.22);
-    --gg-gold-wash: rgba(201, 169, 97, 0.07);
-    --gg-serif: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+    --gg-line: color-mix(in srgb, var(--gg-a, #c9a961) 58%, transparent);
+    --gg-line-soft: color-mix(in srgb, var(--gg-a, #c9a961) 26%, transparent);
+    --gg-wash: color-mix(in srgb, var(--gg-tint, #c9a961) 7%, transparent);
+    --gg-wash-strong: color-mix(in srgb, var(--gg-tint, #c9a961) 15%, transparent);
 }
 
 /* ---------- 生成中的小徽标 ---------- */
@@ -22,15 +61,14 @@
     align-items: center;
     gap: 7px;
     padding: 6px 13px;
-    border-radius: 2px;
-    font-family: var(--gg-serif);
+    border-radius: 3px;
     font-size: 11.5px;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     line-height: 1.3;
     color: var(--SmartThemeBodyColor, #e8e8e8);
     background: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.9));
-    border: 1px solid var(--gg-gold-line);
-    box-shadow: inset 0 0 0 1px var(--gg-gold-faint), 0 5px 18px rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--gg-line);
+    box-shadow: inset 0 0 0 1px var(--gg-line-soft), 0 5px 18px rgba(0, 0, 0, 0.32);
     pointer-events: none;
     max-width: 62vw;
     overflow: hidden;
@@ -42,8 +80,8 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--gg-gold);
-    box-shadow: 0 0 6px var(--gg-gold);
+    background: var(--gg-a, #c9a961);
+    box-shadow: 0 0 7px var(--gg-a, #c9a961);
     animation: gg-pulse 1.4s ease-in-out infinite;
     flex: 0 0 auto;
 }
@@ -71,38 +109,54 @@
     flex-direction: column;
     gap: 9px;
     width: 100%;
-    padding: 16px 14px 13px;
-    border-radius: 3px;
+    padding: 18px 15px 14px;
+    border-radius: 4px;
     color: var(--SmartThemeBodyColor, #e8e8e8);
-    background: var(--SmartThemeBlurTintColor, rgba(18, 18, 22, 0.96));
-    border: 1px solid var(--gg-gold-line);
+    background-color: var(--SmartThemeBlurTintColor, rgba(18, 18, 22, 0.96));
+    border: 1px solid var(--gg-line);
     box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
+
+    /* 四角的 L 形细线，用八条渐变画出来 */
+    background-image:
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line));
+    background-repeat: no-repeat;
+    background-size: 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px;
+    background-position:
+        left 6px top 6px, left 6px top 6px,
+        right 6px top 6px, right 6px top 6px,
+        left 6px bottom 6px, left 6px bottom 6px,
+        right 6px bottom 6px, right 6px bottom 6px;
 }
 
-/* 顶部那条细密缆线纹，凡尔赛的镶板味道靠这一条 */
+/* 顶部细密缆线纹 */
 #gg-panel .gg-card::before {
     content: "";
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 6px;
-    border-radius: 3px 3px 0 0;
-    background: repeating-linear-gradient(90deg, var(--gg-gold-line) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-gold-faint);
-    opacity: 0.85;
+    left: 10px;
+    right: 10px;
+    top: 4px;
+    height: 5px;
+    background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
+    border-bottom: 1px solid var(--gg-line-soft);
     pointer-events: none;
 }
 
-/* 内层细金框，做出双线描边 */
+/* 内层细框 */
 #gg-panel .gg-card::after {
     content: "";
     position: absolute;
-    inset: 11px;
-    border: 1px solid rgba(201, 169, 97, 0.3);
-    border-radius: 1px;
+    inset: 12px;
+    border: 1px solid var(--gg-line-soft);
+    border-radius: 2px;
     pointer-events: none;
 }
 
@@ -114,20 +168,18 @@
 }
 
 #gg-panel .gg-title {
-    font-family: var(--gg-serif);
-    font-weight: 600;
+    font-weight: 700;
     font-size: 13.5px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.04em;
     padding-left: 2px;
 }
 
 #gg-panel .gg-title::before {
     content: "◆";
-    color: var(--gg-gold);
+    color: var(--gg-a, #c9a961);
     font-size: 9px;
     margin-right: 7px;
     vertical-align: middle;
-    opacity: 0.85;
 }
 
 #gg-panel .gg-icon-btn {
@@ -149,9 +201,8 @@
 }
 
 #gg-panel .gg-meta {
-    font-family: var(--gg-serif);
     font-size: 11.5px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     opacity: 0.72;
     line-height: 1.5;
     word-break: break-word;
@@ -164,15 +215,14 @@
     max-height: 34vh;
     overflow: auto;
     padding: 10px 11px;
-    border-radius: 2px;
-    font-family: var(--gg-serif);
+    border-radius: 3px;
     font-size: 12.5px;
     line-height: 1.75;
     white-space: pre-wrap;
     word-break: break-word;
-    background: var(--gg-gold-wash);
-    border: 1px solid var(--gg-gold-faint);
-    border-left: 2px solid var(--gg-gold-line);
+    background: var(--gg-wash);
+    border: 1px solid var(--gg-line-soft);
+    border-left: 2px solid var(--gg-line);
     -webkit-overflow-scrolling: touch;
     user-select: text;
     -webkit-user-select: text;
@@ -190,22 +240,23 @@
     min-height: 36px;
     min-width: 76px;
     padding: 7px 11px;
-    border-radius: 3px;
-    font-family: var(--gg-serif);
+    border-radius: 4px;
+    font-family: inherit;
     font-size: 12.5px;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.03em;
     line-height: 1.2;
     cursor: pointer;
     color: var(--SmartThemeBodyColor, #e8e8e8);
-    background: var(--gg-gold-wash);
-    border: 1px solid var(--gg-gold-line);
-    transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease;
+    background: var(--gg-wash);
+    border: 1px solid var(--gg-line);
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease, box-shadow 0.16s ease;
 }
 
 #gg-panel .gg-btn:hover,
 #gg-settings .gg-btn:hover {
-    background: rgba(201, 169, 97, 0.16);
-    border-color: var(--gg-gold);
+    background: var(--gg-wash-strong);
+    border-color: var(--gg-a, #c9a961);
+    box-shadow: 0 0 0 1px var(--gg-line-soft) inset;
 }
 
 #gg-panel .gg-btn:active,
@@ -215,16 +266,16 @@
 
 #gg-panel .gg-btn.gg-primary,
 #gg-settings .gg-btn.gg-primary {
-    background: linear-gradient(180deg, var(--gg-gold-light), var(--gg-gold));
-    border-color: #b08f45;
-    color: #26201a;
-    font-weight: 600;
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.32);
+    background: linear-gradient(180deg, var(--gg-a2, #e2cb92), var(--gg-a, #c9a961));
+    border-color: var(--gg-deep, #7a5f2b);
+    color: var(--gg-on, #261f16);
+    font-weight: 700;
 }
 
 #gg-panel .gg-btn.gg-primary:hover,
 #gg-settings .gg-btn.gg-primary:hover {
-    background: linear-gradient(180deg, #ecd9a6, #d4b571);
+    filter: brightness(1.08);
+    box-shadow: 0 2px 10px var(--gg-line-soft);
 }
 
 #gg-panel .gg-btn.gg-danger,
@@ -236,12 +287,12 @@
 #gg-panel .gg-btn.gg-danger:hover,
 #gg-settings .gg-btn.gg-danger:hover {
     background: rgba(178, 92, 92, 0.2);
+    border-color: rgba(178, 92, 92, 0.8);
 }
 
 #gg-panel .gg-foot {
-    font-family: var(--gg-serif);
     font-size: 11px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     opacity: 0.72;
     line-height: 1.5;
 }
@@ -250,8 +301,8 @@
     background: none;
     border: none;
     padding: 0 2px;
-    color: var(--gg-gold);
-    font-family: var(--gg-serif);
+    color: var(--gg-a, #c9a961);
+    font-family: inherit;
     font-size: 11px;
     cursor: pointer;
     text-decoration: underline;
@@ -270,14 +321,21 @@
     justify-content: space-between;
     gap: 8px;
     padding: 7px 2px;
-    border-bottom: 1px solid var(--gg-gold-faint);
+    border-bottom: 1px solid var(--gg-line-soft);
 }
 
 #gg-settings .inline-drawer-header b {
-    font-family: var(--gg-serif);
     font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+#gg-settings .inline-drawer-header b::before {
+    content: "◆";
+    color: var(--gg-a, #c9a961);
+    font-size: 8px;
+    margin-right: 6px;
+    vertical-align: middle;
 }
 
 #gg-settings .inline-drawer-content {
@@ -287,56 +345,135 @@
 #gg-settings .gg-sheet {
     position: relative;
     margin-top: 8px;
-    padding: 14px 12px 12px;
-    border-radius: 2px;
-    background: var(--gg-gold-wash);
-    border: 1px solid var(--gg-gold-line);
-    box-shadow: inset 0 0 0 1px var(--gg-gold-faint);
+    padding: 16px 12px 12px;
+    border-radius: 4px;
+    background-color: var(--gg-wash);
+    border: 1px solid var(--gg-line);
+    box-shadow: inset 0 0 0 1px var(--gg-line-soft);
+    background-image:
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line)),
+        linear-gradient(var(--gg-line), var(--gg-line));
+    background-repeat: no-repeat;
+    background-size: 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
+    background-position:
+        left 5px top 5px, left 5px top 5px,
+        right 5px top 5px, right 5px top 5px,
+        left 5px bottom 5px, left 5px bottom 5px,
+        right 5px bottom 5px, right 5px bottom 5px;
 }
 
 #gg-settings .gg-sheet::before {
     content: "";
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
+    left: 10px;
+    right: 10px;
+    top: 4px;
     height: 5px;
-    background: repeating-linear-gradient(90deg, var(--gg-gold-line) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-gold-faint);
-    opacity: 0.8;
+    background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
+    border-bottom: 1px solid var(--gg-line-soft);
     pointer-events: none;
 }
 
 #gg-settings .gg-sub {
     display: flex;
     align-items: center;
-    gap: 9px;
-    margin: 15px 0 8px;
-    font-family: var(--gg-serif);
+    gap: 8px;
+    margin: 16px 0 8px;
     font-size: 10.5px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--gg-gold);
+    letter-spacing: 0.14em;
+    color: var(--gg-a, #c9a961);
 }
 
 #gg-settings .gg-sub:first-child {
-    margin-top: 4px;
+    margin-top: 2px;
+}
+
+#gg-settings .gg-sub::before {
+    content: "";
+    width: 12px;
+    height: 1px;
+    background: var(--gg-line);
+    flex: 0 0 auto;
 }
 
 #gg-settings .gg-sub::after {
     content: "";
     flex: 1 1 auto;
     height: 1px;
-    background: linear-gradient(90deg, var(--gg-gold-line), transparent);
+    background: linear-gradient(90deg, var(--gg-line), transparent);
 }
 
 #gg-settings .gg-diamond {
-    margin: 11px 0 0;
+    margin: 13px 0 0;
     text-align: center;
-    color: var(--gg-gold-line);
-    font-size: 8px;
+    color: color-mix(in srgb, var(--gg-a, #c9a961) 62%, transparent);
+    font-size: 9px;
     letter-spacing: 0.7em;
+    text-indent: 0.7em;
     user-select: none;
+}
+
+/* 主题选择器 */
+#gg-settings .gg-themes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#gg-settings .gg-theme {
+    flex: 1 1 calc(50% - 3px);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--gg-line-soft);
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+#gg-settings .gg-theme:hover {
+    border-color: var(--gg-a, #c9a961);
+    background: var(--gg-wash);
+}
+
+#gg-settings .gg-theme[aria-pressed="true"] {
+    border-color: var(--gg-a, #c9a961);
+    box-shadow: inset 0 0 0 1px var(--gg-a, #c9a961);
+    background: var(--gg-wash-strong);
+}
+
+#gg-settings .gg-theme-dots {
+    display: flex;
+    gap: 3px;
+    flex: 0 0 auto;
+}
+
+#gg-settings .gg-theme-dots i {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+}
+
+#gg-settings .gg-theme-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #gg-settings .gg-check {
@@ -355,7 +492,7 @@
     flex: 0 0 auto;
     margin: 0;
     cursor: pointer;
-    accent-color: var(--gg-gold);
+    accent-color: var(--gg-a, #c9a961);
 }
 
 #gg-settings .gg-inline span {
@@ -368,16 +505,16 @@
     min-width: 62px;
     padding: 4px 6px;
     text-align: center;
-    border-radius: 2px;
-    border: 1px solid var(--gg-gold-line);
+    border-radius: 3px;
+    border: 1px solid var(--gg-line);
     background: transparent;
     color: inherit;
-    font-family: var(--gg-serif);
+    font-family: inherit;
     font-size: 12.5px;
 }
 
 #gg-settings .gg-num:focus {
-    border-color: var(--gg-gold);
+    border-color: var(--gg-a, #c9a961);
     outline: none;
 }
 
@@ -386,18 +523,18 @@
     min-height: 68px;
     padding: 8px 9px;
     resize: vertical;
-    border-radius: 2px;
-    border: 1px solid var(--gg-gold-line);
+    border-radius: 3px;
+    border: 1px solid var(--gg-line);
     background: transparent;
     color: inherit;
-    font-family: var(--gg-serif);
+    font-family: inherit;
     font-size: 12px;
     line-height: 1.65;
     box-sizing: border-box;
 }
 
 #gg-settings .gg-prompt:focus {
-    border-color: var(--gg-gold);
+    border-color: var(--gg-a, #c9a961);
     outline: none;
 }
 
@@ -416,10 +553,9 @@
 }
 
 #gg-settings .gg-count {
-    font-family: var(--gg-serif);
     font-size: 11px;
-    letter-spacing: 0.1em;
-    color: var(--gg-gold);
+    letter-spacing: 0.08em;
+    color: var(--gg-a, #c9a961);
     opacity: 1;
 }
 
@@ -432,9 +568,8 @@
 }
 
 #gg-settings .gg-snap-empty {
-    font-family: var(--gg-serif);
     font-size: 11.5px;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     opacity: 0.5;
 }
 
@@ -443,10 +578,10 @@
     align-items: center;
     gap: 6px;
     padding: 6px 9px;
-    border-radius: 2px;
-    background: var(--gg-gold-wash);
-    border: 1px solid var(--gg-gold-faint);
-    border-left: 2px solid var(--gg-gold-line);
+    border-radius: 3px;
+    background: var(--gg-wash);
+    border: 1px solid var(--gg-line-soft);
+    border-left: 2px solid var(--gg-line);
 }
 
 #gg-settings .gg-snap-info {
@@ -455,9 +590,8 @@
 }
 
 #gg-settings .gg-snap-title {
-    font-family: var(--gg-serif);
     font-size: 12px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -465,7 +599,7 @@
 
 #gg-settings .gg-snap-sub {
     font-size: 11px;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
     opacity: 0.58;
 }
 
@@ -475,7 +609,7 @@
     min-height: 30px;
     padding: 5px 10px;
     font-size: 11.5px;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.02em;
 }
 
 #gg-settings .gg-btn.gg-full {
@@ -486,11 +620,10 @@
 #gg-settings .gg-ver {
     margin-top: 12px;
     padding-top: 9px;
-    border-top: 1px solid var(--gg-gold-faint);
+    border-top: 1px solid var(--gg-line-soft);
     text-align: center;
-    font-family: var(--gg-serif);
     font-size: 10.5px;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.1em;
     opacity: 0.5;
 }
 
@@ -519,7 +652,7 @@
     }
 
     #gg-panel .gg-card {
-        padding: 15px 11px 11px;
+        padding: 17px 11px 11px;
         gap: 8px;
     }
 
@@ -552,6 +685,11 @@
     #gg-settings .gg-check {
         font-size: 13px;
         min-height: 32px;
+    }
+
+    #gg-settings .gg-theme {
+        min-height: 40px;
+        font-size: 12.5px;
     }
 
     #gg-settings .gg-num {

@@ -310,7 +310,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('导出了 v1.2.0 调试入口', mod.default === undefined || true);
+    ok('调试入口暴露了 1.3.0 版本号', window.GenerationGuardian?.version === '1.3.0');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -501,8 +501,24 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.2.2');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.0');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
+
+    eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
+    ok('默认选中特里亚农', document.querySelector('#gg-themes .gg-theme[data-theme="trianon"]').getAttribute('aria-pressed') === 'true');
+    ok('body 上挂了默认主题 class', document.body.classList.contains('gg-theme-trianon'));
+    ok('四套主题名都在（特里亚农/雪暮/霓虹街/霜岸）',
+        ['trianon', 'dusk', 'neon', 'frost'].every((key) => document.querySelector(`#gg-themes .gg-theme[data-theme="${key}"] .gg-theme-name`).textContent.length >= 2));
+
+    document.querySelector('#gg-themes .gg-theme[data-theme="neon"]').click();
+    ok('点霓虹街切过去', document.body.classList.contains('gg-theme-neon'));
+    ok('切过去后旧主题 class 被摘掉', !document.body.classList.contains('gg-theme-trianon'));
+    ok('选中态跟着变', document.querySelector('#gg-themes .gg-theme[data-theme="neon"]').getAttribute('aria-pressed') === 'true');
+    eq('主题写进设置', extensionSettingsStub['generation-guardian'].theme, 'neon');
+
+    document.querySelector('#gg-themes .gg-theme[data-theme="frost"]').click();
+    ok('再切霜岸也生效', document.body.classList.contains('gg-theme-frost'));
+    eq('主题写进设置（第二次）', extensionSettingsStub['generation-guardian'].theme, 'frost');
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '清单里的草稿内容');
@@ -894,6 +910,52 @@ async function scenarioPromptFillOnly() {
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
+async function scenarioStaleGenerationRelease() {
+    console.log('\n[18] 生成状态卡死 5 分钟后自动解锁（不再挡路）');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    const menu = document.createElement('div');
+    menu.id = 'extensions_menu';
+    menu.innerHTML = `<div class="extensions_info"><div class="extension_block" data-name="third-party/bar">
+        <span class="btn_update">更新</span>
+    </div></div>`;
+    document.body.appendChild(menu);
+
+    let hits = 0;
+    document.querySelector('.btn_update').addEventListener('click', () => {
+        hits += 1;
+    });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '半截内容');
+    document.querySelector('.btn_update').click();
+    eq('正在出字时，点「更新」被拦下', hits, 0);
+    eq('对外报告的是「真的在生成」', window.GenerationGuardian.isGenerating(), true);
+
+    // 时间往前推 6 分钟：模拟 GENERATION_ENDED 丢了，这次生成其实早就死了
+    const realNow = Date.now;
+    const shift = 6 * 60 * 1000;
+    Date.now = () => realNow() + shift;
+
+    document.querySelector('.btn_update').click();
+    eq('超过 5 分钟没动静后不再拦，可以正常动扩展', hits, 1);
+    eq('对外报告的「生成中」也已经解除', window.GenerationGuardian.isGenerating(), false);
+
+    Date.now = realNow;
+    pagehide(ctx);
+    eq('草稿本身还牢牢留着', readSnapshots().length, 1);
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 /* ------------------------------------------------------------------ *
  * 入口
  * ------------------------------------------------------------------ */
@@ -919,6 +981,7 @@ async function main() {
     await scenarioPromptSendFailure();
     await scenarioSaveChatFailure();
     await scenarioPromptFillOnly();
+    await scenarioStaleGenerationRelease();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {
