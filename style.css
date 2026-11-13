@@ -15,15 +15,17 @@ body.gg-theme-trianon {
 }
 
 body.gg-theme-dusk {
-    /* 雪松黄昏 ①：Concrete 铺底 → Warm Steel 做行 → Dawn 写字 → 玫瑰点缀 */
-    --gg-surface: #525871;   /* Concrete —— 面板底，大面积 */
-    --gg-row: #857c91;       /* Warm Steel —— 每一条设置行的底，浅一档才看得出分层 */
-    --gg-text: #f8ccaa;      /* Dawn —— 正文，和最暗的底差 6 档 */
-    --gg-dim: #f2c1a3;       /* Peaches & Cream —— 说明小字 */
-    --gg-a: #cd9fa0;         /* Rosewood —— 只用在小面积：竖线、按钮、编号 */
-    --gg-a2: #f2c1a3;        /* Peaches & Cream —— 描边与角线 */
+    /* 雪松黄昏 ①：这张色板的主调是被夕阳照亮的雪原 —— 暖奶油铺底、CONCRETE 写字。
+       Dawn 和 Peaches 是画面里占面积最大的两支，就该当底和面用；
+       Concrete 是远处树影，面积小但最沉，正好拿来做字。 */
+    --gg-surface: #f8ccaa;   /* Dawn —— 面板底，暖奶油 */
+    --gg-row: #f2c1a3;       /* Peaches & Cream —— 行条，比底深半档 */
+    --gg-text: #525871;      /* Concrete —— 正文，压在暖底上 4.1:1 */
+    --gg-dim: #525871;       /* 浅底上不再硬凑第二种灰，小字靠字号分层 */
+    --gg-a: #525871;         /* Concrete —— 按钮实底、选中态 */
+    --gg-a2: #cd9fa0;        /* Rosewood —— 编号、行间细线、角线 */
     --gg-tint: #857c91;
-    --gg-on: #2b1f24;
+    --gg-on: #f8ccaa;        /* 深色按钮上的字回到奶油色 */
 }
 
 body.gg-theme-neon {
@@ -39,22 +41,22 @@ body.gg-theme-neon {
 }
 
 body.gg-theme-frost {
-    /* 雪枝河岸 ③：Moonlight 铺底 → 霜蓝做行 → 牛津蓝写字（唯一一套浅底） */
+    /* 雪枝河岸 ③：Moonlight 铺底 → 霜蓝做行 → 牛津蓝写字 */
     --gg-surface: #f0ecdd;   /* Moonlight —— 雪面底 */
-    --gg-row: color-mix(in srgb, #8ba3c5 24%, #f0ecdd);  /* Frost Blue 稀释成行底，不引入新色 */
-    --gg-text: #02122f;      /* Oxford Blue —— 浅底深字 */
+    --gg-row: color-mix(in srgb, #8ba3c5 26%, #f0ecdd);  /* Frost Blue 稀释成行底 */
+    --gg-text: #02122f;      /* Oxford Blue —— 正文 */
     --gg-dim: #495b7d;       /* Steel —— 说明小字 */
-    --gg-a: #8ba3c5;         /* Frost Blue —— 按钮与竖线 */
-    --gg-a2: #23354d;        /* Storm —— 描边与角线，浅底上越深越亮 */
-    --gg-tint: #495b7d;
-    --gg-on: #f0ecdd;
+    --gg-a: #495b7d;         /* Steel —— 按钮实底（浅底上要用深色块才立得住） */
+    --gg-a2: #23354d;        /* Storm —— 描边与角线 */
+    --gg-tint: #8ba3c5;
+    --gg-on: #f0ecdd;        /* 深钢蓝按钮上写雪白 */
 }
 
 /* 单页并排预览时用元素级属性覆盖（扩展本身不会设这个属性） */
 [data-gg-theme="trianon"] { --gg-surface:#241d13; --gg-row:#33281a; --gg-text:#f7f0dc; --gg-dim:#c9a961; --gg-a:#c9a961; --gg-a2:#e2cb92; --gg-on:#261f16; }
-[data-gg-theme="dusk"] { --gg-surface:#525871; --gg-row:#857c91; --gg-text:#f8ccaa; --gg-dim:#f2c1a3; --gg-a:#cd9fa0; --gg-a2:#f2c1a3; --gg-on:#2b1f24; }
+[data-gg-theme="dusk"] { --gg-surface:#f8ccaa; --gg-row:#f2c1a3; --gg-text:#525871; --gg-dim:#857c91; --gg-a:#525871; --gg-a2:#cd9fa0; --gg-on:#f8ccaa; }
 [data-gg-theme="neon"] { --gg-surface:#212934; --gg-row:#4b536b; --gg-text:#ffae81; --gg-dim:#c9947a; --gg-a:#f1444e; --gg-a2:#c9947a; --gg-on:#fff3ec; }
-[data-gg-theme="frost"] { --gg-surface:#f0ecdd; --gg-row:#d3d3c8; --gg-text:#02122f; --gg-dim:#495b7d; --gg-a:#8ba3c5; --gg-a2:#23354d; --gg-on:#f0ecdd; }
+[data-gg-theme="frost"] { --gg-surface:#f0ecdd; --gg-row:#dcdcd2; --gg-text:#02122f; --gg-dim:#495b7d; --gg-a:#495b7d; --gg-a2:#23354d; --gg-on:#f0ecdd; }
 
 /* 派生色：声明在元素上，才能吃到 body 继承来的当前主题色 */
 #gg-badge,
@@ -502,9 +504,9 @@ body.gg-theme-frost {
 }
 
 #gg-settings .gg-theme[data-theme="trianon"] { --gg-swatch-bg: #241d13; --gg-swatch-a: #c9a961; --gg-swatch-text: #f7f0dc; --gg-swatch-ring: #e2cb92; }
-#gg-settings .gg-theme[data-theme="dusk"] { --gg-swatch-bg: #525871; --gg-swatch-a: #cd9fa0; --gg-swatch-text: #f8ccaa; --gg-swatch-ring: #f2c1a3; }
+#gg-settings .gg-theme[data-theme="dusk"] { --gg-swatch-bg: #f8ccaa; --gg-swatch-a: #f2c1a3; --gg-swatch-text: #525871; --gg-swatch-ring: #857c91; }
 #gg-settings .gg-theme[data-theme="neon"] { --gg-swatch-bg: #212934; --gg-swatch-a: #f1444e; --gg-swatch-text: #ffae81; --gg-swatch-ring: #c9947a; }
-#gg-settings .gg-theme[data-theme="frost"] { --gg-swatch-bg: #f0ecdd; --gg-swatch-a: #8ba3c5; --gg-swatch-text: #02122f; --gg-swatch-ring: #23354d; }
+#gg-settings .gg-theme[data-theme="frost"] { --gg-swatch-bg: #f0ecdd; --gg-swatch-a: #8ba3c5; --gg-swatch-text: #02122f; --gg-swatch-ring: #495b7d; }
 
 #gg-settings .gg-theme:hover {
     border-color: var(--gg-swatch-ring, #e2cb92);
@@ -556,11 +558,11 @@ body.gg-theme-frost {
     display: flex;
     align-items: flex-start;
     gap: 9px;
-    margin-bottom: 5px;
-    padding: 7px 9px 7px 8px;
+    margin-bottom: 6px;
+    padding: 8px 10px 7px;
     border-radius: 4px;
     background: var(--gg-row, transparent);
-    border-left: 2px solid var(--gg-a, #c9a961);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--gg-a2, #e2cb92) 54%, transparent);
     font-size: 12.5px;
     line-height: 1.45;
     color: var(--gg-text, #e8e8e8);
@@ -569,7 +571,7 @@ body.gg-theme-frost {
 }
 
 #gg-settings .gg-check:hover {
-    border-left-color: var(--gg-a2, #e2cb92);
+    background: color-mix(in srgb, var(--gg-row) 82%, var(--gg-a2, #e2cb92));
 }
 
 #gg-settings .gg-check input[type="checkbox"] {
