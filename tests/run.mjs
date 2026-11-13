@@ -264,7 +264,7 @@ async function scenarioReloadAndResume() {
     for (const token of ['她抬起头', '她抬起头，', '她抬起头，看着你笑了。', '她抬起头，看着你笑了。\n*“等很久了吧。”*']) {
         await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, token);
     }
-    eq('徽标显示累计字数', document.getElementById('gg-badge-text').textContent, `生成守护：已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字`);
+    eq('徽标显示累计字数', document.getElementById('gg-badge-text').textContent, `生成守护：已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字 · 别刷新`);
 
     // 页面被杀（pagehide 时同步落盘）
     ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
@@ -282,13 +282,13 @@ async function scenarioReloadAndResume() {
     ok('重载后自动弹出恢复卡片', panelVisible(), panelText());
     ok('卡片里显示字数', panelText().includes('12 字') || panelText().includes('字'), panelText());
 
-    document.getElementById('gg-btn-resume').click();
+    document.getElementById('gg-btn-recover').click();
     await sleep(60);
     eq('草稿被写回聊天（新增一条消息）', chat.length, 3);
     eq('消息内容就是草稿', chat[2]?.mes, '她抬起头，看着你笑了。\n*“等很久了吧。”*');
     eq('调用了 addOneMessage 渲染', ctx2.__calls.addOneMessage, 1);
     eq('调用了 saveChat 落盘', ctx2.__calls.saveChat, 1);
-    eq('触发了 continue 续写', ctx2.__calls.generate.join(','), 'continue');
+    eq('「接回」不发任何新请求', ctx2.__calls.generate.length, 0);
     eq('恢复后草稿被清掉', readSnapshots().length, 0);
     ok('恢复后卡片收起', !panelVisible());
 
@@ -365,11 +365,11 @@ async function scenarioContinueType() {
     await signalReady(ctx2);
     await sleep(900);
 
-    document.getElementById('gg-btn-resume').click();
+    document.getElementById('gg-btn-recover').click();
     await sleep(60);
     eq('没有新增消息', chat.length, 3);
     eq('拼回原消息', chat[2]?.mes, '前半段。后半段补上来了。');
-    eq('触发了 continue', ctx2.__calls.generate.join(','), 'continue');
+    eq('「接回」不再发任何请求', ctx2.__calls.generate.length, 0);
     eq('调用了 updateMessageBlock 重渲染', ctx2.__calls.updateMessageBlock, 1);
 
     const issues = restoreConsole();
@@ -400,7 +400,8 @@ async function scenarioSwipeGoesToTextarea() {
     await sleep(900);
 
     ok('弹出恢复卡片', panelVisible());
-    ok('隐藏了「恢复并续写」按钮', document.getElementById('gg-btn-resume').classList.contains('gg-hidden'));
+    ok('隐藏了「续写」按钮', document.getElementById('gg-btn-recover-write').classList.contains('gg-hidden'));
+    ok('隐藏了「接回」按钮', document.getElementById('gg-btn-recover').classList.contains('gg-hidden'));
 
     document.getElementById('gg-btn-textarea').click();
     await sleep(40);
@@ -487,8 +488,8 @@ async function scenarioSettingsPanel() {
     const host = document.getElementById('extensions_settings2');
     ok('设置面板挂到了扩展设置区', Boolean(host.querySelector('#gg-settings')));
     ok('有启用开关', Boolean(document.getElementById('gg-set-enabled')));
-    ok('默认勾选自动续写', document.getElementById('gg-set-auto').checked);
-    eq('默认倒计时 8 秒', document.getElementById('gg-set-delay').value, '8');
+    ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
+    ok('没有自动续写开关', !document.getElementById('gg-set-auto'));
 
     // 生成一份草稿，看清单是否同步
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
@@ -505,17 +506,15 @@ async function scenarioSettingsPanel() {
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
-async function scenarioAutoResumeCountdown() {
-    console.log('\n[8] 不做任何操作 → 倒计时结束后自动续写');
+async function scenarioResumePrompt() {
+    console.log('\n[8] 点「续写」→ 替你发一条续写指令');
     captureConsole();
     storage.clear();
-
-    // 把倒计时调到 2 秒，模拟手机端「杀后台重开、人还没反应过来」
+    // 用「番外」那条指令验证：指令内容走的是设置里的文本
     extensionSettingsStub['generation-guardian'] = {
         enabled: true,
         blockReload: true,
-        autoResume: true,
-        autoResumeDelay: 2,
+        resumePrompt: '继续生成上一个番外，衔接上文末尾，不要从头开始。',
     };
 
     const chat = [
@@ -535,14 +534,72 @@ async function scenarioAutoResumeCountdown() {
     await signalReady(ctx2);
     await sleep(700);
 
-    ok('卡片弹出并开始倒计时', panelVisible() && (document.getElementById('gg-recover-foot')?.textContent || '').includes('秒后自动续写'));
+    ok('卡片弹出', panelVisible());
+    ok('卡片里没有倒计时', !(document.getElementById('gg-recover-foot').textContent || '').includes('秒后'));
+    eq('续写按钮就叫「续写」', document.getElementById('gg-btn-recover-write').textContent, '续写');
+    eq('接回按钮就叫「接回」', document.getElementById('gg-btn-recover').textContent, '接回');
 
-    await sleep(2600);
-    eq('倒计时结束自动续写（没有人工点击）', ctx2.__calls.generate.join(','), 'continue');
-    eq('草稿已接回聊天', chat.length, 3);
+    document.getElementById('gg-btn-recover-write').click();
+    await sleep(80);
+    eq('草稿写回聊天', chat.length, 3);
+    eq('只发了一次普通请求（不是 continue）', ctx2.__calls.generate.join(','), 'normal');
+    eq('输入框里就是那条指令', document.getElementById('send_textarea').value, '继续生成上一个番外，衔接上文末尾，不要从头开始。');
     eq('草稿已清掉', readSnapshots().length, 0);
 
+    document.getElementById('gg-btn-recover-write').click();
+    await sleep(40);
+    eq('重复点击不会再发请求', ctx2.__calls.generate.length, 1);
+
     delete extensionSettingsStub['generation-guardian'];
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioGuardReloadClicks() {
+    console.log('\n[9] 生成中拦住会刷新页面的扩展管理操作');
+    captureConsole();
+    storage.clear();
+
+    const chat = [{ name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' }];
+    const ctx = createWorld({ chat });
+
+    // 造一个 SillyTavern 风格的扩展条目
+    const menu = document.createElement('div');
+    menu.id = 'extensions_menu';
+    menu.innerHTML = `<div class="extensions_info"><div class="extension_block" data-name="third-party/foo">
+        <span class="extension_name">Foo</span>
+        <span class="toggle_disable">禁用</span>
+        <span class="btn_update">更新</span>
+    </div></div>`;
+    document.body.appendChild(menu);
+
+    let bubbled = 0;
+    document.addEventListener('click', () => {
+        bubbled += 1;
+    });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    document.querySelector('.toggle_disable').click();
+    await sleep(20);
+    eq('不在生成时，点击照常交给酒馆处理', bubbled, 1);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    document.querySelector('.btn_update').click();
+    await sleep(20);
+    eq('生成中点「更新」被就地拦下', bubbled, 1);
+
+    document.querySelector('.toggle_disable').click();
+    await sleep(20);
+    eq('生成中点「禁用」也被拦下', bubbled, 1);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
+    await sleep(30);
+    document.querySelector('.btn_update').click();
+    await sleep(20);
+    eq('生成结束后恢复正常', bubbled, 2);
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
@@ -563,7 +620,8 @@ async function main() {
     await scenarioChatMovedOn();
     await scenarioOtherChatIgnored();
     await scenarioSettingsPanel();
-    await scenarioAutoResumeCountdown();
+    await scenarioResumePrompt();
+    await scenarioGuardReloadClicks();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

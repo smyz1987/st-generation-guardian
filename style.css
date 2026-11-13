@@ -222,6 +222,27 @@
     text-align: center;
 }
 
+#gg-settings .gg-set-label {
+    font-size: 12px;
+    opacity: 0.8;
+    margin: 8px 0 4px;
+}
+
+#gg-settings .gg-prompt {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    font-size: 12px;
+    line-height: 1.5;
+    box-sizing: border-box;
+}
+
+#gg-settings .gg-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: 4px 0 8px;
+}
+
 #gg-settings .gg-hint {
     font-size: 11.5px;
     opacity: 0.68;
@@ -329,6 +350,16 @@
     #gg-panel .gg-actions .gg-btn {
         min-height: 44px;
         font-size: 13px;
+    }
+
+    /* 手机上「接回」「续写」各占一整行，拇指好按；其余按钮两两一排 */
+    #gg-panel .gg-actions .gg-primary,
+    #gg-panel #gg-btn-recover-write {
+        flex: 1 1 100%;
+    }
+
+    #gg-panel .gg-actions .gg-danger {
+        flex: 0 0 auto;
     }
 
     #gg-panel .gg-icon-btn {

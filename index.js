@@ -24,13 +24,21 @@ const MAX_SNAPSHOTS = 8;
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const FLUSH_INTERVAL_MS = 800;
 const TAIL_HEAD_LEN = 60;
-const DEFAULT_DELAY = 8;
+
+// 默认的「续写指令」，就是在你那句话上补两条约束：
+// 原句负责方向和位置（接着上一轮 / 不断章重来），
+// 补的那句负责防复读、防文风漂移。两种场景各给一条，设置里可切换也可自己改。
+const RESUME_PROMPT_TAIL = '不复述、不重复已经写过的内容，保持原有的视角、人称、语气和文风，直接从正文往下写。';
+const RESUME_PRESETS = {
+    main: `继续生成上一轮剧情，衔接上文末尾，不要从头开始。${RESUME_PROMPT_TAIL}`,
+    extra: `继续生成上一个番外，衔接上文末尾，不要从头开始。${RESUME_PROMPT_TAIL}`,
+};
+const DEFAULT_RESUME_PROMPT = RESUME_PRESETS.main;
 
 const DEFAULT_SETTINGS = {
     enabled: true,
     blockReload: true,
-    autoResume: true,
-    autoResumeDelay: DEFAULT_DELAY,
+    resumePrompt: DEFAULT_RESUME_PROMPT,
 };
 
 /* ------------------------------------------------------------------ *
@@ -291,7 +299,6 @@ function updateBadge(text) {
     label.textContent = text;
 }
 
-let countdownTimer = null;
 let pendingSnapshot = null;
 
 function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
@@ -335,7 +342,7 @@ function onStreamToken(text) {
     // 所以直接覆盖，不需要自己拼接。
     buffer.text = text;
     buffer.updatedAt = Date.now();
-    updateBadge(`生成守护：已保存 ${text.length} 字`);
+    updateBadge(`生成守护：已保存 ${text.length} 字 · 别刷新`);
     scheduleFlush();
 }
 
@@ -445,6 +452,38 @@ function disarmUnloadGuard() {
 }
 
 /* ------------------------------------------------------------------ *
+ * 生成中拦住「会刷新页面」的扩展管理操作
+ *
+ * SillyTavern 的启用 / 禁用 / 更新 / 删除 / 换分支 都是直接 location.reload()，
+ * beforeunload 拦不住它（浏览器内部 reload 不弹确认框），所以在源头掐：
+ * 生成期间在这些按钮的捕获阶段就地拦下，等生成完再操作。
+ * ------------------------------------------------------------------ */
+
+const RELOAD_PRONE_SELECTOR = [
+    '.extensions_info .extension_block .toggle_enable',
+    '.extensions_info .extension_block .toggle_disable',
+    '.extensions_info .extension_block .btn_update',
+    '.extensions_info .extension_block .btn_delete',
+    '.extensions_info .extension_block .btn_clean',
+    '.extensions_info .extension_block .btn_move',
+    '.extensions_info .extension_block .btn_branch',
+].join(', ');
+
+function guardReloadProneClick(event) {
+    if (!generating || !settings().enabled || !settings().blockReload) {
+        return;
+    }
+    const target = event.target;
+    const hit = typeof target?.closest === 'function' ? target.closest(RELOAD_PRONE_SELECTOR) : null;
+    if (!hit) {
+        return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toast('正在生成中，这个操作会刷新页面把回复刷掉 —— 等这条回复写完再动扩展', 'warning');
+}
+
+/* ------------------------------------------------------------------ *
  * 界面：状态徽标
  * ------------------------------------------------------------------ */
 
@@ -471,9 +510,10 @@ function ensureUI() {
             <div class="gg-meta" id="gg-recover-meta"></div>
             <div class="gg-preview" id="gg-recover-preview"></div>
             <div class="gg-actions">
-                <button type="button" class="gg-btn gg-primary" id="gg-btn-resume">恢复并续写</button>
+                <button type="button" class="gg-btn gg-primary" id="gg-btn-recover">接回</button>
+                <button type="button" class="gg-btn" id="gg-btn-recover-write">续写</button>
+                <button type="button" class="gg-btn" id="gg-btn-prompt">复制指令</button>
                 <button type="button" class="gg-btn" id="gg-btn-textarea">放入输入框</button>
-                <button type="button" class="gg-btn" id="gg-btn-copy">复制</button>
                 <button type="button" class="gg-btn gg-danger" id="gg-btn-discard">丢弃</button>
             </div>
             <div class="gg-foot" id="gg-recover-foot"></div>
@@ -481,13 +521,22 @@ function ensureUI() {
     document.body.appendChild(panel);
 
     el('gg-btn-close').addEventListener('click', () => {
-        stopCountdown();
         hidePanel();
     });
-    el('gg-btn-resume').addEventListener('click', () => {
+    el('gg-btn-recover').addEventListener('click', () => {
         if (pendingSnapshot) {
-            resumeSnapshot(pendingSnapshot);
+            resumeSnapshot(pendingSnapshot, { thenPrompt: false });
         }
+    });
+    el('gg-btn-recover-write').addEventListener('click', () => {
+        if (pendingSnapshot) {
+            resumeSnapshot(pendingSnapshot, { thenPrompt: true });
+        }
+    });
+    el('gg-btn-prompt').addEventListener('click', async () => {
+        const prompt = resumePromptText();
+        const ok = await copyText(prompt);
+        toast(ok ? '续写指令已复制' : '复制失败，可到设置里手动复制', ok ? 'success' : 'warning');
     });
     el('gg-btn-textarea').addEventListener('click', () => {
         if (!pendingSnapshot) {
@@ -496,23 +545,14 @@ function ensureUI() {
         putToTextarea(pendingSnapshot.text);
         removeSnapshot(pendingSnapshot.id);
         pendingSnapshot = null;
-        stopCountdown();
         hidePanel();
         toast('草稿已放进输入框，可以自己改完再发', 'info');
-    });
-    el('gg-btn-copy').addEventListener('click', async () => {
-        if (!pendingSnapshot) {
-            return;
-        }
-        const ok = await copyText(pendingSnapshot.text);
-        toast(ok ? '已复制全文' : '复制失败，请长按预览区手动选中', ok ? 'success' : 'warning');
     });
     el('gg-btn-discard').addEventListener('click', () => {
         if (pendingSnapshot) {
             removeSnapshot(pendingSnapshot.id);
             pendingSnapshot = null;
         }
-        stopCountdown();
         hidePanel();
         toast('草稿已丢弃', 'info');
     });
@@ -533,11 +573,14 @@ function showPanel(snapshot) {
         : snapshot.text;
     preview.scrollTop = preview.scrollHeight;
 
-    const resumeBtn = el('gg-btn-resume');
+    const resumeBtn = el('gg-btn-recover');
+    const resumeWriteBtn = el('gg-btn-recover-write');
     const textareaBtn = el('gg-btn-textarea');
     const cannotResume = snapshot.type === 'swipe' || snapshot.type === 'impersonate';
     resumeBtn.classList.toggle('gg-hidden', cannotResume);
-    textareaBtn.textContent = cannotResume ? '填入输入框（这类生成无法自动续写）' : '放入输入框';
+    resumeWriteBtn.classList.toggle('gg-hidden', cannotResume);
+    textareaBtn.textContent = cannotResume ? '填入输入框（这类生成只能这样处理）' : '放入输入框';
+    setFoot('「接回」只把草稿原样写回聊天，不再发请求；「续写」会替你发一条续写指令，多一次请求');
 }
 
 function hidePanel() {
@@ -551,45 +594,9 @@ function setFoot(html) {
     }
 }
 
-function stopCountdown() {
-    if (countdownTimer) {
-        clearInterval(countdownTimer);
-        countdownTimer = null;
-    }
-}
-
-function startCountdown() {
-    stopCountdown();
-    if (!pendingSnapshot) {
-        return;
-    }
-    if (!settings().autoResume) {
-        setFoot('自动续写已关闭 · 可以点「恢复并续写」手动继续');
-        return;
-    }
-    let left = Math.min(30, Math.max(2, Number(settings().autoResumeDelay) || DEFAULT_DELAY));
-    setFoot(`<b id="gg-cd">${left}</b> 秒后自动续写 · <button type="button" class="gg-link" id="gg-btn-cancel">取消</button>`);
-    el('gg-btn-cancel')?.addEventListener('click', () => {
-        stopCountdown();
-        setFoot('已取消自动续写 · 可以点「恢复并续写」手动继续');
-    });
-    countdownTimer = setInterval(() => {
-        left -= 1;
-        const cd = el('gg-cd');
-        if (cd) {
-            cd.textContent = String(Math.max(0, left));
-        }
-        if (left <= 0) {
-            stopCountdown();
-            const snapshot = pendingSnapshot;
-            if (snapshot) {
-                console.log(TAG, 'auto resume', snapshot.id);
-                resumeSnapshot(snapshot, { auto: true });
-            }
-        }
-    }, 1000);
-}
-
+/* ------------------------------------------------------------------ *
+ * 恢复（接回草稿，不再有任何自动续写倒计时）
+ * ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ *
  * 恢复 + 续写
  * ------------------------------------------------------------------ */
@@ -621,7 +628,7 @@ function matchesAnchor(snapshot) {
     return Boolean(extra) && !extra.is_user && String(extra.mes || '').trim().length === 0;
 }
 
-function scanForRecovery({ countdown = true } = {}) {
+function scanForRecovery() {
     ensureUI();
     const key = currentChatKey();
     const candidates = readAll().filter((snapshot) => snapshot.chatKey === key
@@ -630,7 +637,6 @@ function scanForRecovery({ countdown = true } = {}) {
 
     if (!candidates.length) {
         pendingSnapshot = null;
-        stopCountdown();
         hidePanel();
         return;
     }
@@ -638,11 +644,6 @@ function scanForRecovery({ countdown = true } = {}) {
     candidates.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
     pendingSnapshot = candidates[0];
     showPanel(pendingSnapshot);
-    if (countdown) {
-        startCountdown();
-    } else {
-        setFoot('可以点「恢复并续写」接着往下写');
-    }
 }
 
 function updateMessageInDom(ctx, index, message) {
@@ -665,32 +666,38 @@ async function saveChatQuiet(ctx) {
     }
 }
 
-function triggerContinue() {
+function resumePromptText() {
+    const value = String(settings().resumePrompt ?? '').trim();
+    return value || DEFAULT_RESUME_PROMPT;
+}
+
+/**
+ * 替你发一条接续指令。
+ * 走的完全是酒馆的标准路径：写进输入框 → 调 Generate('normal')，
+ * Generate 会自己读输入框、清空、把这条消息塞进聊天再请求。
+ */
+function sendResumePrompt() {
     const ctx = getContext();
+    const prompt = resumePromptText();
+    putToTextarea(prompt);
     if (typeof ctx.generate === 'function') {
-        Promise.resolve(ctx.generate('continue')).catch((error) => {
-            console.error(TAG, 'auto continue failed', error);
-            toast('自动续写失败，请手动点「继续 / Continue」按钮', 'warning');
+        Promise.resolve(ctx.generate('normal')).catch((error) => {
+            console.error(TAG, 'auto prompt failed', error);
+            toast('自动发送失败，指令已留在输入框，按发送即可', 'warning');
         });
         return;
     }
-    const button = document.querySelector('#continue_button');
-    if (button) {
-        button.click();
-        return;
-    }
-    toast('请手动点一下「继续 / Continue」按钮', 'warning');
+    toast('没法自动发送，指令已放进输入框，按发送即可', 'warning');
 }
 
 let resuming = false;
 
-async function resumeSnapshot(snapshot, { auto = false } = {}) {
+async function resumeSnapshot(snapshot, { thenPrompt = false } = {}) {
     if (!snapshot) {
         return;
     }
-    stopCountdown();
 
-    // 幂等保护：双击按钮 / 多个倒计时同时到点 / 恢复过程中再次触发，都只执行一次
+    // 幂等保护：双击按钮 / 恢复过程中再次触发，都只执行一次
     if (resuming) {
         return;
     }
@@ -702,13 +709,13 @@ async function resumeSnapshot(snapshot, { auto = false } = {}) {
     resuming = true;
 
     try {
-        await doResume(snapshot, auto);
+        await doResume(snapshot, { thenPrompt });
     } finally {
         resuming = false;
     }
 }
 
-async function doResume(snapshot, auto) {
+async function doResume(snapshot, { thenPrompt = false } = {}) {
     hidePanel();
 
     const ctx = getContext();
@@ -743,12 +750,15 @@ async function doResume(snapshot, auto) {
         await saveChatQuiet(ctx);
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
-        toast('已恢复到断点位置，正在接着往下写…', 'success');
-        triggerContinue();
+        toast(thenPrompt ? '已接回，正在发续写指令…' : '已接回断点位置', 'success');
+        if (thenPrompt) {
+            sendResumePrompt();
+        }
         return;
     }
 
-    // 普通回复 → 把草稿作为一条新的角色消息塞回聊天，再用 continue 从它往后写
+    // 普通回复 → 把草稿作为一条新的角色消息塞回聊天
+    // （可选）再替你发一条续写指令，让模型接着往下写
     const node = {
         name: snapshot.charName || ctx.name2 || 'Character',
         is_user: false,
@@ -786,8 +796,10 @@ async function doResume(snapshot, auto) {
 
     removeSnapshot(snapshot.id);
     pendingSnapshot = null;
-    toast(auto ? '断点已接上，正在自动续写…' : '断点已接上，正在接着往下写…', 'success');
-    triggerContinue();
+    toast(thenPrompt ? '已接回，正在发续写指令…' : '已接回聊天', 'success');
+    if (thenPrompt) {
+        sendResumePrompt();
+    }
 }
 
 /* ------------------------------------------------------------------ *
@@ -799,11 +811,11 @@ const SETTINGS_HTML = `
     <div class="gg-set-title">Generation Guardian · 生成守护</div>
     <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
     <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-    <label class="gg-check"><input type="checkbox" id="gg-set-auto"><span>刷新后自动续写</span></label>
-    <div class="gg-check gg-inline">
-        <span>自动续写倒计时</span>
-        <input type="number" id="gg-set-delay" min="2" max="30" step="1" class="text_pole gg-num">
-        <span>秒</span>
+    <div class="gg-set-label">续写指令（点「续写」时替你发这一条，可自己改）</div>
+    <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
+    <div class="gg-row">
+        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用剧情指令</button>
+        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
     </div>
     <div class="gg-hint">草稿存在本机浏览器 localStorage 里，只在这个设备、这个浏览器可见。手机端切后台被系统杀掉重载，也能靠它捡回来。</div>
     <div class="gg-snap-head"><span>已保存草稿</span><span id="gg-snap-count">0</span></div>
@@ -824,8 +836,7 @@ function mountSettings() {
     const s = settings();
     el('gg-set-enabled').checked = Boolean(s.enabled);
     el('gg-set-block').checked = Boolean(s.blockReload);
-    el('gg-set-auto').checked = Boolean(s.autoResume);
-    el('gg-set-delay').value = String(s.autoResumeDelay);
+    el('gg-set-prompt').value = resumePromptText();
 
     el('gg-set-enabled').addEventListener('change', (event) => {
         s.enabled = Boolean(event.target.checked);
@@ -834,7 +845,6 @@ function mountSettings() {
             disarmUnloadGuard();
             updateBadge('');
             hidePanel();
-            stopCountdown();
         }
         persistSettings();
     });
@@ -847,20 +857,23 @@ function mountSettings() {
         }
         persistSettings();
     });
-    el('gg-set-auto').addEventListener('change', (event) => {
-        s.autoResume = Boolean(event.target.checked);
+    el('gg-set-prompt').addEventListener('change', (event) => {
+        const value = String(event.target.value || '').trim();
+        s.resumePrompt = value || DEFAULT_RESUME_PROMPT;
+        event.target.value = s.resumePrompt;
         persistSettings();
     });
-    el('gg-set-delay').addEventListener('change', (event) => {
-        const value = Number(event.target.value);
-        s.autoResumeDelay = Number.isFinite(value) ? Math.min(30, Math.max(2, Math.round(value))) : DEFAULT_DELAY;
-        event.target.value = String(s.autoResumeDelay);
+    const applyPreset = (text, label) => {
+        s.resumePrompt = text;
+        el('gg-set-prompt').value = text;
         persistSettings();
-    });
+        toast(`续写指令已换成「${label}」`, 'info');
+    };
+    el('gg-set-preset-main').addEventListener('click', () => applyPreset(RESUME_PRESETS.main, '剧情'));
+    el('gg-set-preset-extra').addEventListener('click', () => applyPreset(RESUME_PRESETS.extra, '番外'));
     el('gg-btn-clear').addEventListener('click', () => {
         writeAll([]);
         pendingSnapshot = null;
-        stopCountdown();
         hidePanel();
         toast('草稿已清空', 'info');
     });
@@ -973,6 +986,7 @@ function initOnce() {
             }
         }
     });
+    document.addEventListener('click', guardReloadProneClick, true);
 
     ensureUI();
     mountSettings();
@@ -980,7 +994,7 @@ function initOnce() {
     setTimeout(scanForRecoverySafe, 600);
 
     window.GenerationGuardian = {
-        version: '1.0.0',
+        version: '1.1.0',
         settings: settings,
         snapshots: readAll,
         scan: scanForRecoverySafe,
