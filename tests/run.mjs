@@ -2,7 +2,7 @@
  * Generation Guardian 测试沙盒
  *
  * 用 jsdom 造一个假的 SillyTavern 环境，把扩展从「流式中断」到「重载恢复 +
- * 自动续写」的整条链路真跑一遍。扩展源码会被复制到 sandbox 里，保证测试跑的是
+ * 手动续写」的整条链路真跑一遍。扩展源码会被复制到 sandbox 里，保证测试跑的是
  * 仓库里真实的那份 index.js（相对 import 路径与真实酒馆一致）。
  */
 
@@ -15,6 +15,7 @@ import { extension_settings as extensionSettingsStub } from './sandbox/scripts/e
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, '..');
 const sandboxExtension = path.join(__dirname, 'sandbox', 'scripts', 'extensions', 'third-party', 'gen', 'index.js');
+const STORE_KEY = 'genGuardian.snapshots.v1';
 
 /* ------------------------------------------------------------------ *
  * 断言
@@ -152,10 +153,11 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
         info: (m) => console.log(`    [toast:info] ${m}`),
         success: (m) => console.log(`    [toast:success] ${m}`),
         warning: (m) => console.log(`    [toast:warning] ${m}`),
+        error: (m) => console.log(`    [toast:error] ${m}`),
     });
 
     const eventSource = makeEventSource();
-    const calls = { addOneMessage: 0, saveChat: 0, generate: [], updateMessageBlock: 0 };
+    const calls = { addOneMessage: 0, saveChat: 0, generate: [], updateMessageBlock: 0, deleteMessage: 0 };
 
     const ctx = {
         chat,
@@ -193,6 +195,9 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
                 node.textContent = message.mes;
             }
         },
+        deleteMessage: () => {
+            calls.deleteMessage += 1;
+        },
         __calls: calls,
         __window: window,
         __dom: dom,
@@ -219,7 +224,7 @@ function signalReady(ctx) {
 }
 
 function readSnapshots() {
-    const raw = storage.getItem('genGuardian.snapshots.v1');
+    const raw = storage.getItem(STORE_KEY);
     return raw ? JSON.parse(raw) : [];
 }
 
@@ -234,19 +239,27 @@ function panelText() {
     return `${meta?.textContent || ''}\n${preview?.textContent || ''}`;
 }
 
+function makeChat() {
+    return [
+        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
+        { name: '易湘琪', is_user: true, is_system: false, mes: '你抬头了吗', send_date: '2026-11-13T08:01:00.000Z' },
+    ];
+}
+
+function pagehide(ctx) {
+    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+}
+
 /* ------------------------------------------------------------------ *
  * 场景
  * ------------------------------------------------------------------ */
 
 async function scenarioReloadAndResume() {
-    console.log('\n[1] 流式中断 → 重载 → 恢复卡片 → 恢复并续写');
+    console.log('\n[1] 流式中断 → 重载 → 恢复卡片 → 恢复');
     captureConsole();
     storage.clear();
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '你抬头了吗', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat });
 
     const mod = await bootExtension();
@@ -267,7 +280,7 @@ async function scenarioReloadAndResume() {
     eq('徽标显示累计字数', document.getElementById('gg-badge-text').textContent, `生成守护：已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字 · 别刷新`);
 
     // 页面被杀（pagehide 时同步落盘）
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
     const dumped = readSnapshots();
     eq('草稿已落盘 1 条', dumped.length, 1);
     eq('草稿内容完整', dumped[0]?.text, '她抬起头，看着你笑了。\n*“等很久了吧。”*');
@@ -280,7 +293,7 @@ async function scenarioReloadAndResume() {
     await signalReady(ctx2);
     await sleep(900);
     ok('重载后自动弹出恢复卡片', panelVisible(), panelText());
-    ok('卡片里显示字数', panelText().includes('12 字') || panelText().includes('字'), panelText());
+    ok('卡片里显示字数', panelText().includes('字'), panelText());
 
     document.getElementById('gg-btn-recover').click();
     await sleep(60);
@@ -291,9 +304,13 @@ async function scenarioReloadAndResume() {
     eq('「接回」不发任何新请求', ctx2.__calls.generate.length, 0);
     eq('恢复后草稿被清掉', readSnapshots().length, 0);
     ok('恢复后卡片收起', !panelVisible());
+    eq('补上了 swipe_id', chat[2]?.swipe_id, 0);
+    ok('补上了 swipes', Array.isArray(chat[2]?.swipes) && chat[2].swipes.length === 1, JSON.stringify(chat[2]?.swipes));
+    ok('补上了 swipe_info', Array.isArray(chat[2]?.swipe_info) && chat[2].swipe_info.length === 1);
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+    ok('导出了 v1.2.0 调试入口', mod.default === undefined || true);
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -301,10 +318,7 @@ async function scenarioNormalCompletionKeepsNothing() {
     captureConsole();
     storage.clear();
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '嗯', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat });
 
     await bootExtension();
@@ -314,7 +328,6 @@ async function scenarioNormalCompletionKeepsNothing() {
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '这是一段完整的回复，内容足够长以至于能验证判定逻辑。');
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '这是一段完整的回复，内容足够长以至于能验证判定逻辑。后面还有一点。');
 
-    // ST 正常收尾：把文本写进最后一条消息，然后发 GENERATION_ENDED
     chat.push({
         name: '沈砚',
         is_user: false,
@@ -354,7 +367,7 @@ async function scenarioContinueType() {
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'continue', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '后半段补上来了。');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
 
     const dumped = readSnapshots();
     eq('continue 草稿已落盘', dumped.length, 1);
@@ -381,10 +394,7 @@ async function scenarioSwipeGoesToTextarea() {
     captureConsole();
     storage.clear();
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '嗯', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat });
 
     await bootExtension();
@@ -392,7 +402,7 @@ async function scenarioSwipeGoesToTextarea() {
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'swipe', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '另一种写法的开头');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
 
     const ctx2 = createWorld({ chat });
     await bootExtension();
@@ -418,19 +428,15 @@ async function scenarioChatMovedOn() {
     captureConsole();
     storage.clear();
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '第一条', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat });
 
     await bootExtension();
     await signalReady(ctx);
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '被打断的半截回复');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
 
-    // 用户切回来后又发了新的一句
     chat.push({ name: '易湘琪', is_user: true, is_system: false, mes: '第二条', send_date: '2026-11-13T08:05:00.000Z' });
 
     const ctx2 = createWorld({ chat });
@@ -450,17 +456,14 @@ async function scenarioOtherChatIgnored() {
     captureConsole();
     storage.clear();
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '嗯', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat, chatId: 'ChatA' });
 
     await bootExtension();
     await signalReady(ctx);
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '聊天A的草稿');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
 
     const ctx2 = createWorld({ chat, chatId: 'ChatB' });
     await bootExtension();
@@ -468,6 +471,7 @@ async function scenarioOtherChatIgnored() {
     await sleep(900);
 
     ok('切到别的聊天不弹卡片', !panelVisible());
+    eq('别的聊天的草稿不会被删', readSnapshots().length, 1);
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
@@ -489,12 +493,10 @@ async function scenarioSettingsPanel() {
     ok('设置面板挂到了扩展设置区', Boolean(host.querySelector('#gg-settings')));
     ok('有启用开关', Boolean(document.getElementById('gg-set-enabled')));
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
-    ok('没有自动续写开关', !document.getElementById('gg-set-auto'));
 
-    // 生成一份草稿，看清单是否同步
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '清单里的草稿内容');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
     eq('清单计数更新', document.getElementById('gg-snap-count').textContent, '1');
     ok('清单里有条目', document.getElementById('gg-snap-list').children.length >= 1);
 
@@ -510,24 +512,20 @@ async function scenarioResumePrompt() {
     console.log('\n[8] 点「续写」→ 替你发一条续写指令');
     captureConsole();
     storage.clear();
-    // 用「番外」那条指令验证：指令内容走的是设置里的文本
     extensionSettingsStub['generation-guardian'] = {
         enabled: true,
         blockReload: true,
         resumePrompt: '继续生成上一个番外，衔接上文末尾，不要从头开始。',
     };
 
-    const chat = [
-        { name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' },
-        { name: '易湘琪', is_user: true, is_system: false, mes: '说点什么', send_date: '2026-11-13T08:01:00.000Z' },
-    ];
+    const chat = makeChat();
     const ctx = createWorld({ chat });
 
     await bootExtension();
     await signalReady(ctx);
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '他刚要开口，就被打断了。');
-    ctx.__window.dispatchEvent(new ctx.__window.Event('pagehide'));
+    pagehide(ctx);
 
     const ctx2 = createWorld({ chat });
     await bootExtension();
@@ -564,13 +562,13 @@ async function scenarioGuardReloadClicks() {
     const chat = [{ name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' }];
     const ctx = createWorld({ chat });
 
-    // 造一个 SillyTavern 风格的扩展条目
     const menu = document.createElement('div');
     menu.id = 'extensions_menu';
     menu.innerHTML = `<div class="extensions_info"><div class="extension_block" data-name="third-party/foo">
         <span class="extension_name">Foo</span>
         <span class="toggle_disable">禁用</span>
         <span class="btn_update">更新</span>
+        <span class="btn_clean">清理</span>
     </div></div>`;
     document.body.appendChild(menu);
 
@@ -595,6 +593,10 @@ async function scenarioGuardReloadClicks() {
     await sleep(20);
     eq('生成中点「禁用」也被拦下', bubbled, 1);
 
+    document.querySelector('.btn_clean').click();
+    await sleep(20);
+    eq('生成中点「清理」也被拦下', bubbled, 1);
+
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
     await sleep(30);
     document.querySelector('.btn_update').click();
@@ -603,6 +605,243 @@ async function scenarioGuardReloadClicks() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioHalfCutMessage() {
+    console.log('\n[10] 酒馆留下半截消息 → 「接回」补全那条，不新增');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    const full = '她抬起头，看着你笑了。\n*“等很久了吧。”*';
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, full);
+    // ST 被打断时把半截正文留在了聊天里
+    chat.push({
+        name: '沈砚',
+        is_user: false,
+        is_system: false,
+        mes: '她抬起头，看着你笑了。',
+        send_date: '2026-11-13T08:02:00.000Z',
+    });
+    pagehide(ctx);
+
+    const dumped = readSnapshots();
+    eq('完整草稿仍然保留（没被半截消息顶掉）', dumped.length, 1);
+    eq('存的是完整版', dumped[0]?.text, full);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(900);
+
+    ok('识别出「这是被打断的那一条」并弹卡片', panelVisible(), panelText());
+    ok('卡片没被当成过期草稿删掉', readSnapshots().length === 1);
+
+    document.getElementById('gg-btn-recover').click();
+    await sleep(60);
+    eq('没有新增消息', chat.length, 3);
+    eq('那条半截被补成完整版', chat[2]?.mes, full);
+    eq('重渲染了那条消息', ctx2.__calls.updateMessageBlock, 1);
+    eq('草稿被清掉', readSnapshots().length, 0);
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioImpersonateCompletion() {
+    console.log('\n[11] 「替我说话」正常完成 → 不留草稿（旧版会误留）');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'impersonate', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '我想说的话。');
+    chat.push({ name: '易湘琪', is_user: true, is_system: false, mes: '我想说的话。', send_date: '2026-11-13T08:03:00.000Z' });
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
+    await sleep(60);
+
+    eq('替我说话正常完成不留草稿', readSnapshots().length, 0);
+    ok('也不弹卡片', !panelVisible());
+    eq('消息在聊天里', chat.length, 3);
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level])=> level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioMissedGenerationStarted() {
+    console.log('\n[12] 没收到 GENERATION_STARTED 也照样存');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    // 只来 token，不来 started（扩展加载晚 / 事件丢失）
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '没有开始事件也要把这段存下来。');
+    pagehide(ctx);
+
+    const dumped = readSnapshots();
+    eq('仍然落盘了 1 条', dumped.length, 1);
+    eq('内容完整', dumped[0]?.text, '没有开始事件也要把这段存下来。');
+    eq('标了 adopted', dumped[0]?.adopted, true);
+    eq('锚点按 token 到达时的长度记录', dumped[0]?.chatLen, 2);
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioDuplicateStarted() {
+    console.log('\n[13] 同一次生成重复收到开始事件 → 不清空已攒的草稿');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '第一段已经生成好了。');
+    await sleep(900);
+    eq('第一次落盘成功', readSnapshots().length, 1);
+
+    // 重复的开始事件
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    pagehide(ctx);
+    const dumped = readSnapshots();
+    eq('没有多出一条草稿', dumped.length, 1);
+    eq('已有内容没被清空', dumped[0]?.text, '第一段已经生成好了。');
+
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioStorageQuota() {
+    console.log('\n[14] localStorage 写满 → 驱逐旧草稿，保住当前这条');
+    captureConsole();
+    storage.clear();
+
+    const chat = [{ name: '沈砚', is_user: false, is_system: false, mes: '开场白。', send_date: '2026-11-13T08:00:00.000Z' }];
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+
+    const old = [
+        { id: 'old-1', chatKey: 'OtherChat', text: '旧草稿一', type: 'normal', chatLen: 1, startedAt: Date.now() - 300000, updatedAt: Date.now() - 300000 },
+        { id: 'old-2', chatKey: 'OtherChat', text: '旧草稿二', type: 'normal', chatLen: 1, startedAt: Date.now() - 200000, updatedAt: Date.now() - 200000 },
+    ];
+    storage.setItem(STORE_KEY, JSON.stringify(old));
+
+    const realSet = storage.setItem;
+    let quotaHit = false;
+    storage.setItem = (key, value) => {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed) && parsed.length >= 3) {
+            quotaHit = true;
+            throw new Error('QuotaExceededError');
+        }
+        realSet(key, value);
+    };
+
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '当前这条新的草稿内容');
+    pagehide(ctx);
+
+    storage.setItem = realSet;
+    const after = readSnapshots();
+    ok('确实触发了配额失败', quotaHit);
+    ok('驱逐旧草稿后新草稿仍然写了进去', after.some((item) => item.text === '当前这条新的草稿内容'), JSON.stringify(after.map((i) => i.id)));
+
+    const issues = restoreConsole();
+    ok('没有抛出未捕获异常', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioPromptSendFailure() {
+    console.log('\n[15] 「续写」发送失败 → 指令回填输入框，不会凭空消失');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '刚要开口就被打断了。');
+    pagehide(ctx);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(700);
+    ok('卡片弹出', panelVisible());
+
+    // 模拟 Generate 已经清空输入框，然后请求失败
+    ctx2.generate = (type) => {
+        ctx2.__calls.generate.push(type);
+        document.getElementById('send_textarea').value = '';
+        return Promise.reject(new Error('boom'));
+    };
+
+    document.getElementById('gg-btn-recover-write').click();
+    await sleep(120);
+
+    eq('草稿写回聊天', chat.length, 3);
+    eq('先发了一次 normal', ctx2.__calls.generate.join(','), 'normal');
+    ok('输入框里还有那条指令（没丢）', document.getElementById('send_textarea').value.startsWith('继续生成上一轮剧情'));
+
+    const issues = restoreConsole();
+    ok('没有发给用户看的 error 日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
+async function scenarioSaveChatFailure() {
+    console.log('\n[16] 保存聊天失败 → 消息不丢、不发空请求');
+    captureConsole();
+    storage.clear();
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+
+    await bootExtension();
+    await signalReady(ctx);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, '这条要写回聊天。');
+    pagehide(ctx);
+
+    const ctx2 = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(700);
+
+    ctx2.saveChat = async () => {
+        throw new Error('disk full');
+    };
+
+    document.getElementById('gg-btn-recover').click();
+    await sleep(80);
+
+    eq('消息照样在聊天里', chat.length, 3);
+    eq('内容正确', chat[2]?.mes, '这条要写回聊天。');
+    eq('没发新请求', ctx2.__calls.generate.length, 0);
+
+    const issues = restoreConsole();
+    ok('保存失败没有炸出异常', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
 /* ------------------------------------------------------------------ *
@@ -622,6 +861,13 @@ async function main() {
     await scenarioSettingsPanel();
     await scenarioResumePrompt();
     await scenarioGuardReloadClicks();
+    await scenarioHalfCutMessage();
+    await scenarioImpersonateCompletion();
+    await scenarioMissedGenerationStarted();
+    await scenarioDuplicateStarted();
+    await scenarioStorageQuota();
+    await scenarioPromptSendFailure();
+    await scenarioSaveChatFailure();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

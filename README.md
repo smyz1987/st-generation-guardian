@@ -3,9 +3,10 @@
 给 SillyTavern 用的第三方扩展：**回复生成到一半被刷新、被扩展自动更新、被手机系统杀后台打断时，已经吐出来的字不会白白蒸发。**
 
 - 生成中拦截手动刷新 / 关页面（`beforeunload` 确认框）
-- 生成中拦住酒馆里那几个**会直接刷新页面**的扩展操作（启用 / 禁用 / 更新 / 删除 / 换分支）
+- 生成中拦住酒馆里那几个**会直接刷新页面**的扩展操作（启用 / 禁用 / 更新 / 删除 / 清理 / 移动 / 换分支）
 - 流式生成时把已生成的文字持续写进浏览器本地存储，页面被杀也丢不了
 - 刷新回来打开同一聊天，弹出恢复卡片：**「接回」把草稿原样写回聊天，「续写」替你发一条续写指令**
+- 酒馆被打断后留在聊天里的**半截消息**，也能被草稿补全，不会多出一段重复正文
 
 ---
 
@@ -19,6 +20,22 @@
 
 所以省的不是「中断那一次」，而是「不用为了找回半截回复再整条重发一遍」。
 
+### 它拦不住的打断（照样会断，但字不会丢）
+
+能做的和做不到的分开写，免得误以为它是万能的：
+
+| 打断方式 | 能拦吗 | 结果 |
+| --- | --- | --- |
+| 在酒馆里点扩展的启用 / 禁用 / 更新 / 删除 / 清理 | 能，就地拦下并提示 | 回复继续写，不用重发 |
+| 手动按 F5 / 点浏览器刷新 / Ctrl+R | 弹确认框（Chrome、Edge、Firefox 桌面端有效） | 你点取消就不断 |
+| 手机浏览器下拉刷新 / 手机系统杀后台 / 锁屏被回收 | **拦不住** | 生成会断，草稿在本地，刷新回来点「接回」 |
+| 网络断开、代理掉线、API 超时、上游 429 | **拦不住** | 同上 |
+| 生成中切换聊天 / 换角色卡 / 编辑或删除消息 | **拦不住**（酒馆自己会中止） | 同上，回到原聊天会弹卡片 |
+| `/reload` 斜杠命令、切换界面语言、重置用户配置 | **拦不住**（命令和别处代码直接调 reload） | 同上 |
+| 浏览器崩溃、断电、手滑关掉标签 | **拦不住** | 草稿最多丢最后 0.8 秒的字 |
+
+**「刷新后在后台继续输出」物理上做不到**：生成是浏览器这条连接在收流，页面一断，上游连接就断了，前端不可能替它续上。所以这里做的是「断了不丢、想要就自己接着要」。
+
 ---
 
 ## 为什么不用酒馆原生的 continue
@@ -30,16 +47,21 @@
 
 所以这里换成**一条普通指令**：由扩展替你发一条「续写」指令，模型重开一段正文。质量稳定得多，也便宜。
 
+（「继续生成」被打断的情况例外：那种本来就是在同一条消息上续，草稿会拼回那条消息，不算新请求。）
+
 ---
 
 ## 安装
 
 ### 方式一：从 GitHub 直装（PC + 手机通用）
 
-1. 把本仓库推到 GitHub（见下方「发布到 GitHub」）。
-2. 打开 SillyTavern → 顶部「扩展 / Extensions」→ `Install Extension`。
-3. 地址填 `https://github.com/<你的用户名>/st-generation-guardian`，点安装。
-4. 刷新页面，扩展列表里能看到 **Generation Guardian (生成守护)** 就是装好了。
+打开 SillyTavern → 顶部「扩展 / Extensions」→ `Install Extension` → 地址填：
+
+```
+https://github.com/smyz1987/st-generation-guardian
+```
+
+安装后刷新页面，扩展列表里能看到 **Generation Guardian (生成守护)** 就是装好了。
 
 扩展装在**服务端目录**里，所以只要是同一个 SillyTavern 实例，手机浏览器访问同一个地址就自动有，手机端不用单独装。
 
@@ -55,10 +77,9 @@ SillyTavern/public/scripts/extensions/third-party/gen-guardian/
 
 ### 方式三：手机 Termux 自建
 
-如果酒馆跑在 Termux 里，`cd` 到 `public/scripts/extensions/third-party`，然后：
-
 ```bash
-git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardian
+cd SillyTavern/public/scripts/extensions/third-party
+git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 ```
 
 手机浏览器刷新即可。
@@ -71,7 +92,7 @@ git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardi
 
 | 按钮 | 干什么 | 花不花额度 |
 | --- | --- | --- |
-| **接回** | 把草稿原样写回聊天，成为一条正式消息 | 不花 |
+| **接回** | 把草稿原样写回聊天，成为一条正式消息；如果酒馆留了半截消息，就补全那一条 | 不花 |
 | **续写** | 先接回，再替你发一条续写指令，让模型接着往下写 | 多一次普通请求 |
 | **复制指令** | 只把续写指令复制到剪贴板，你自己发 | 不花 |
 | **放入输入框** | 把草稿文字塞进输入框，自己改完再发 | 不花 |
@@ -101,8 +122,6 @@ git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardi
 
 ## 设置
 
-扩展设置区里有：
-
 | 项 | 说明 |
 | --- | --- |
 | 启用插件 | 总开关 |
@@ -130,14 +149,19 @@ git clone https://github.com/<你的用户名>/st-generation-guardian gen-guardi
 | 环节 | 做法 |
 | --- | --- |
 | 开始记录 | `GENERATION_STARTED`，记下 `chatId`、聊天长度、锚点消息指纹（FNV-1a hash + 前 60 字） |
+| 兜底记录 | 万一没收到开始事件，收到第一个 token 时用当前聊天状态现场补一个骨架 |
 | 保存内容 | `STREAM_TOKEN_RECEIVED` 给的是**当前累计的原始文本**，直接覆盖写入，节流 800ms 落盘 |
-| 结束判断 | `GENERATION_STOPPED` / `GENERATION_ENDED`：内容已经进聊天就丢草稿，没进就留下 |
+| 强制落盘 | `pagehide` / `visibilitychange=hidden` 时同步写一次（手机被冻结前抢一次） |
+| 卡死兜底 | 45 秒没有新 token 也没结束事件，先把草稿钉死并提示「好像卡住了」 |
+| 结束判断 | `GENERATION_STOPPED` / `GENERATION_ENDED`：核对「新消息长度 + 文本探针」，拿不准就留着草稿 |
 | 恢复校验 | 聊天长度 + 锚点指纹双重校验，避免串到别的聊天或你后来又发了新消息的情况 |
-| 接回 | `chat.push()` + `addOneMessage()` + `saveChat()`，不调用生成 |
-| 续写 | 写进 `#send_textarea` 再 `generate('normal')`，等价你手打发送；不用 `continue` |
-| 拦截刷新 | `beforeunload` + 捕获阶段拦 `.extensions_info` 里会 `location.reload()` 的按钮 |
+| 半截补全 | 聊天最后多出一条「草稿的前缀」，判定为被打断的那条，接回时直接补全而不是新增 |
+| 接回 | `chat.push()` + `addOneMessage()` + `saveChat()`，不调用生成；失败时回滚已插入的消息 |
+| 续写 | 写进 `#send_textarea` 再 `generate('normal')`，等价你手打发送；失败时把指令填回输入框 |
+| 拦截刷新 | `beforeunload` + 捕获阶段拦 `.extensions_info` 里会 `location.reload()` 的 7 类按钮 |
+| 存储兜底 | localStorage 写满时逐条驱逐旧草稿，保证当前这条一定写得进去 |
 | 幂等 | 恢复中加锁 + 二次校验草稿是否还存在，双击按钮不会插两条消息 |
-| 调试 | 控制台 `GenerationGuardian.snapshots()` / `.scan()` / `.clear()` / `.copy()` |
+| 调试 | 控制台 `GenerationGuardian.snapshots()` / `.liveDraft()` / `.scan()` / `.clear()` |
 
 关键文件：
 
@@ -150,16 +174,16 @@ tests/          本地测试沙盒
 
 ### 跑测试
 
-`tests/run.mjs` 用 jsdom 造了一个假的酒馆窗口，把扩展源码按真实相对路径 import 进去，跑 9 个场景：
+`tests/run.mjs` 用 jsdom 造了一个假的酒馆窗口，把扩展源码按真实相对路径 import 进去，跑 16 个场景：
 
 ```bash
 npm install
 npm test
 ```
 
-覆盖：流式中断→重载→卡片→接回、接回后不发请求、「续写」只发一次普通请求且指令正确、重复点击不重复发、continue 类型恢复到原消息、swipe 只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、别的聊天的草稿不弹卡片、设置面板与草稿清单、生成中拦截会刷新的扩展操作。
+覆盖：流式中断→重载→卡片→接回、接回后不发请求、「续写」只发一次普通请求、重复点击不重复发、continue 类型恢复到原消息、swipe 只能进输入框、正常完成不留草稿、中断后聊天已变化不弹过期草稿、别的聊天的草稿不弹卡片、设置面板与草稿清单、生成中拦截会刷新的扩展操作、半截消息补全、替我说话正常完成不误留草稿、错过开始事件也能存、重复开始事件不清空、存储写满驱逐旧草稿、续写发送失败回填指令、保存聊天失败不丢消息。
 
-当前：**65 项断言全通过**。
+当前：**104 项断言全通过**。
 
 ---
 
@@ -182,8 +206,8 @@ git push -u origin main
 发版打 tag（安装时可以直接指定分支或 tag）：
 
 ```bash
-git tag -a v1.1.0 -m "v1.1.0"
-git push origin v1.1.0
+git tag -a v1.2.0 -m "v1.2.0"
+git push origin v1.2.0
 ```
 
 没配过 git 身份的话，先在仓库里设一次（只影响这个仓库）：
@@ -201,9 +225,10 @@ git config user.email "你的邮箱"
 - 打断那一次请求的钱回不来，本扩展只保住已经生成的文字。
 - 「换一条 / swipe」「替我说话 / impersonate」无法续写，只能进输入框。
 - 草稿存在本机浏览器 localStorage：PC 和手机不互通，换浏览器 / 清缓存会丢，内容为明文。
-- 拦不住 SillyTavern 在别处直接调用的 `location.reload()`（比如你在别的地方触发了重载），那种情况只能靠草稿恢复。
 - 手机端部分浏览器（尤其 iOS Safari）对生成中的刷新确认框支持不佳，可能不弹窗直接刷新 —— 靠草稿恢复兜住。
+- 单条草稿超过 100 万字会截断保留头尾，卡片上会标「过长已截断」。
 - 依赖 `STREAM_TOKEN_RECEIVED` 事件，低于 1.12 的旧版本可能没有。
+- 同一浏览器开两个酒馆标签同时生成，两条草稿可能互相覆盖（同时只会有一个标签在生成）。
 
 ## License
 

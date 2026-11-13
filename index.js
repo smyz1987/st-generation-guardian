@@ -6,12 +6,15 @@
  * 被系统杀掉重载，已经生成的内容直接消失，但 API 额度已经花掉了。
  *
  * 三件事：
- *   1. 生成中拦截刷新：beforeunload 钩子，刷新/关页面时会弹确认框。
+ *   1. 生成中拦截刷新：beforeunload 钩子 + 拦截所有会 location.reload() 的扩展管理操作；
+ *      页面隐藏 / 卸载时强制落盘（手机切后台、被系统杀掉前抢一次）。
  *   2. 流式断点保存：监听 STREAM_TOKEN_RECEIVED（SillyTavern 每次流式推送都会带
  *      当前累计的原始文本），把草稿持续写进 localStorage，页面被杀也不会丢。
- *   3. 刷新后恢复 + 续写：回到同一聊天时弹出恢复卡片，一键把草稿写回聊天，
- *      再用 SillyTavern 自己的 "continue"（assistant 前缀方式）接着生成。
- *      续写只支付后半段的额度，前面已经生成的部分不用重新花钱。
+ *   3. 刷新后恢复 + 续写：回到同一聊天时弹出恢复卡片，一键把草稿写回聊天。
+ *      「接回」不发请求；「续写」由你手动触发一条普通指令（不用 continue）。
+ *
+ * 判定原则：草稿「是否已经完整进了聊天」一律保守 —— 不确定就留着，
+ * 宁可多弹一张卡片，也不允许把还在存储里的草稿删掉。
  */
 
 import { extension_settings, getContext } from '../../../extensions.js';
@@ -24,6 +27,10 @@ const MAX_SNAPSHOTS = 8;
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const FLUSH_INTERVAL_MS = 800;
 const TAIL_HEAD_LEN = 60;
+// 单条草稿上限，防 localStorage 配额被打满后连新草稿都写不进去
+const MAX_DRAFT_CHARS = 1000000;
+// 超过这么久没有任何新 token，就当这条回复卡住了，先把草稿落盘并提示
+const STALL_WATCHDOG_MS = 45000;
 
 // 默认的「续写指令」，就是在你那句话上补两条约束：
 // 原句负责方向和位置（接着上一轮 / 不断章重来），
@@ -188,37 +195,93 @@ function tailSignature(chatLen) {
     return hash(`${message.send_date ?? ''}|${message.is_user ? 'u' : 'c'}|${message.mes ?? ''}`);
 }
 
-function hasTextSavedInChat(snapshot) {
+/** 单条草稿超长时保留头尾，避免把 localStorage 配额写爆 */
+function clipDraft(text) {
+    const s = String(text ?? '');
+    if (s.length <= MAX_DRAFT_CHARS) {
+        return { text: s, truncated: false };
+    }
+    const head = s.slice(0, 4000);
+    const tail = s.slice(-(MAX_DRAFT_CHARS - 4000));
+    return { text: `${head}\n\n……（中间过长已省略）……\n\n${tail}`, truncated: true };
+}
+
+/** 从草稿里抽几个特征片段，用于判断「这段文字是不是已经出现在某条消息里」 */
+function probeList(text) {
+    const t = String(text || '').trim();
+    if (!t) {
+        return [];
+    }
+    // 短回复没有足够的采样空间，整段当探针
+    if (t.length <= 20) {
+        return [t];
+    }
+    const probes = [t.slice(0, 30), t.slice(-40)];
+    if (t.length > 120) {
+        const start = Math.floor(t.length * 0.55);
+        probes.push(t.slice(start, start + 40));
+    }
+    return probes.map((probe) => probe.trim()).filter((probe) => probe.length >= 12);
+}
+
+function lastChatMessage() {
     const chat = getContext().chat || [];
-    const text = String(snapshot.text || '').trim();
+    return chat.length ? chat[chat.length - 1] : null;
+}
+
+/**
+ * 草稿是否「已经完整落进聊天」。
+ *
+ * 这是整个扩展里唯一会「删草稿」的判据，所以一律往保守的方向判：
+ * 只要长度对不上、探针没命中，就当作没落地，把草稿留着让用户自己决定。
+ * 旧版只看文本探针，会把「模型正文重复了某个片段」误判成已保存，
+ * 从而删掉真草稿；也会把 impersonate（生成的是 user 消息）永远判成未保存。
+ */
+function chatDraftLanded(snapshot) {
+    const chat = getContext().chat || [];
+    const text = String(snapshot?.text || '').trim();
     if (!text || !chat.length) {
         return false;
     }
-    // 只看最后一条角色消息，避免误判；用中段探针，规避流式结束时补全星号/引号造成的尾部差异
-    let lastChar = null;
-    for (let i = chat.length - 1; i >= 0; i--) {
-        if (!chat[i].is_user && !chat[i].is_system) {
-            lastChar = chat[i];
-            break;
-        }
-    }
-    const mes = String(lastChar?.mes || '');
-    if (!mes) {
+    const probes = probeList(text);
+    if (!probes.length) {
         return false;
     }
-    const probes = [];
-    if (text.length > 120) {
-        const start = Math.floor(text.length * 0.55);
-        probes.push(text.slice(start, start + 40));
+
+    // 情形一：生成后多出一条新消息（普通回复 / 换一条 / 替我说话）
+    if (chat.length > snapshot.chatLen) {
+        const last = chat[chat.length - 1];
+        const mes = String(last?.mes || '');
+        if (!mes.trim()) {
+            return false;
+        }
+        // 明显比草稿短 → 多半是被中断留下的半截，不算落地
+        if (mes.trim().length < text.length * 0.9) {
+            return false;
+        }
+        return probes.some((probe) => mes.includes(probe));
     }
-    if (text.length > 60) {
-        probes.push(text.slice(-40));
+
+    // 情形二：就地写回最后一条（继续生成追加 / 重新生成覆盖）
+    if (chat.length === snapshot.chatLen) {
+        const anchor = chat[snapshot.chatLen - 1];
+        const mes = String(anchor?.mes || '');
+        const base = typeof snapshot.baseMes === 'string' ? snapshot.baseMes : null;
+        if (snapshot.type === 'continue' && base !== null) {
+            if (mes.trim().length < (base.length + text.length) * 0.9) {
+                return false;
+            }
+            return probes.some((probe) => mes.includes(probe));
+        }
+        if (snapshot.type === 'regenerate') {
+            if (mes.trim().length < text.length * 0.9) {
+                return false;
+            }
+            return probes.some((probe) => mes.includes(probe));
+        }
     }
-    probes.push(text.slice(0, 30));
-    return probes
-        .map((probe) => probe.trim())
-        .filter((probe) => probe.length >= 15)
-        .some((probe) => mes.includes(probe));
+
+    return false;
 }
 
 /* ------------------------------------------------------------------ *
@@ -247,28 +310,58 @@ function readAll() {
     }
 }
 
+let storageFailed = false;
+
 function writeAll(list) {
+    const trimmed = list
+        .slice()
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+        .slice(0, MAX_SNAPSHOTS);
     try {
-        const trimmed = list
-            .slice()
-            .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
-            .slice(0, MAX_SNAPSHOTS);
         localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+        storageFailed = false;
     } catch (error) {
-        console.warn(TAG, 'write snapshots failed', error);
+        // 配额写满时逐条驱逐旧草稿重试，保证「当前这条」一定写得进去
+        const evicted = trimmed.slice();
+        let ok = false;
+        while (evicted.length > 1) {
+            evicted.pop();
+            try {
+                localStorage.setItem(STORE_KEY, JSON.stringify(evicted));
+                ok = true;
+                break;
+            } catch {
+                /* 继续驱逐 */
+            }
+        }
+        if (!ok) {
+            storageFailed = true;
+            console.warn(TAG, 'write snapshots failed', error);
+        } else {
+            storageFailed = false;
+            console.warn(TAG, 'localStorage full, older drafts evicted');
+        }
     }
     refreshSnapList();
 }
 
 function upsertSnapshot(snapshot) {
+    const clip = clipDraft(snapshot.text);
+    const next = {
+        ...snapshot,
+        text: clip.text,
+        truncated: clip.truncated || Boolean(snapshot.truncated),
+        rawLength: String(snapshot.text || '').length,
+    };
     const list = readAll();
-    const index = list.findIndex((item) => item.id === snapshot.id);
+    const index = list.findIndex((item) => item.id === next.id);
     if (index >= 0) {
-        list[index] = snapshot;
+        list[index] = next;
     } else {
-        list.unshift(snapshot);
+        list.unshift(next);
     }
     writeAll(list);
+    return next;
 }
 
 function removeSnapshot(id) {
@@ -283,7 +376,8 @@ let buffer = null;
 let generating = false;
 let flushTimer = null;
 let lastFlushAt = 0;
-let lastSavedLength = 0;
+let lastSavedText = '';
+let stallTimer = null;
 
 function updateBadge(text) {
     const badge = el('gg-badge');
@@ -314,6 +408,12 @@ function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
     const chatLen = chat.length;
     const last = chat[chatLen - 1];
 
+    // 同一次生成重复收到 GENERATION_STARTED 时不重置骨架，否则会清掉已攒下的草稿
+    if (buffer && generating && buffer.chatLen === chatLen
+        && buffer.type === String(type || 'normal') && buffer.text) {
+        return;
+    }
+
     buffer = {
         id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
         chatKey: currentChatKey(),
@@ -328,22 +428,84 @@ function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
         startedAt: Date.now(),
         updatedAt: Date.now(),
     };
-    lastSavedLength = 0;
+    lastSavedText = '';
     generating = true;
     updateBadge('生成守护：已开始记录…');
     armUnloadGuard();
+    armStallWatch();
 }
 
+/** 生成卡住（几十秒没有新 token 也没有结束事件）时，至少先把已有草稿钉死 */
+function armStallWatch() {
+    clearStallWatch();
+    stallTimer = setTimeout(() => {
+        stallTimer = null;
+        if (!buffer || !generating) {
+            return;
+        }
+        flushNow();
+        const length = String(buffer.text || '').length;
+        if (length) {
+            toast(`这条回复好像卡住了，已保住 ${length} 字草稿`, 'warning');
+        }
+    }, STALL_WATCHDOG_MS);
+}
+
+function clearStallWatch() {
+    if (stallTimer) {
+        clearTimeout(stallTimer);
+        stallTimer = null;
+    }
+}
+
+/**
+ * 收到流式 token。
+ * STREAM_TOKEN_RECEIVED 传的是「当前累计的原始文本」，直接覆盖，不用自己拼接。
+ * 万一没收到 GENERATION_STARTED（扩展加载晚、事件丢失），这里现场补一个草稿骨架，
+ * 保证任何情况下都有东西可存。
+ */
 function onStreamToken(text) {
-    if (!buffer || typeof text !== 'string') {
+    if (!settings().enabled || typeof text !== 'string') {
         return;
     }
-    // SillyTavern 的 STREAM_TOKEN_RECEIVED 传的是「当前累计的原始文本」，
-    // 所以直接覆盖，不需要自己拼接。
+    if (!buffer) {
+        buffer = adoptBuffer();
+        generating = true;
+        armUnloadGuard();
+    }
     buffer.text = text;
     buffer.updatedAt = Date.now();
-    updateBadge(`生成守护：已保存 ${text.length} 字 · 别刷新`);
+    if (storageFailed) {
+        updateBadge(`生成守护：已保存 ${text.length} 字（本地存储不可用！）`);
+    } else {
+        updateBadge(`生成守护：已保存 ${text.length} 字 · 别刷新`);
+    }
+    armStallWatch();
     scheduleFlush();
+}
+
+/** 没拿到 GENERATION_STARTED 时，用当前聊天状态现场造草稿骨架 */
+function adoptBuffer() {
+    const ctx = getContext();
+    const chat = ctx.chat || [];
+    const chatLen = chat.length;
+    const last = chat[chatLen - 1];
+    console.warn(TAG, 'missed GENERATION_STARTED, adopting live chat state');
+    return {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        chatKey: currentChatKey(),
+        chatLen,
+        tailHash: tailSignature(chatLen),
+        tailHead: String(last?.mes || '').slice(0, TAIL_HEAD_LEN),
+        tailIsUser: Boolean(last?.is_user),
+        type: 'normal',
+        charName: String(ctx.name2 || '').slice(0, 80),
+        baseMes: null,
+        text: '',
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        adopted: true,
+    };
 }
 
 function scheduleFlush() {
@@ -362,11 +524,12 @@ function flushNow() {
     if (!buffer) {
         return;
     }
-    const length = String(buffer.text || '').length;
-    if (!length || length === lastSavedLength) {
+    const text = String(buffer.text || '');
+    // 用全文比较而不是长度比较：同样长度但内容变了也要落盘
+    if (!text.length || text === lastSavedText) {
         return;
     }
-    lastSavedLength = length;
+    lastSavedText = text;
     buffer.updatedAt = Date.now();
     upsertSnapshot({ ...buffer });
 }
@@ -374,6 +537,7 @@ function flushNow() {
 function onGenerationFinished(reason) {
     generating = false;
     disarmUnloadGuard();
+    clearStallWatch();
     updateBadge('');
     if (flushTimer) {
         clearTimeout(flushTimer);
@@ -392,8 +556,9 @@ function onGenerationFinished(reason) {
         return;
     }
 
-    // 正常结束时内容已经写进聊天了，不需要留草稿。
-    if (hasTextSavedInChat(snapshot)) {
+    // 正常结束时内容已经完整写进聊天了，不需要留草稿。
+    // 这里判定一律保守：拿不准就留着，交给 500ms 后的 scan 再复核一次。
+    if (chatDraftLanded(snapshot)) {
         removeSnapshot(snapshot.id);
         return;
     }
@@ -565,7 +730,7 @@ function showPanel(snapshot) {
     const preview = el('gg-recover-preview');
 
     panel.classList.remove('gg-hidden');
-    meta.textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · ${typeLabel(snapshot.type)} · 已保住 ${snapshot.text.length} 字`;
+    meta.textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · ${typeLabel(snapshot.type)} · 已保住 ${snapshot.text.length} 字${snapshot.truncated ? '（过长已截断）' : ''}`;
 
     const head = '……（前面已生成的部分）\n';
     preview.textContent = snapshot.text.length > 1200
@@ -620,19 +785,35 @@ function matchesAnchor(snapshot) {
     if (chat.length === snapshot.chatLen) {
         return true;
     }
-    // 后面多出了一条「空壳」消息（某些中断方式会留下），允许覆盖它
+    // 后面多出一条：空的半成品，或者被中断留下的半截正文，都允许用草稿覆盖它
     if (chat.length !== snapshot.chatLen + 1) {
         return false;
     }
     const extra = chat[snapshot.chatLen];
-    return Boolean(extra) && !extra.is_user && String(extra.mes || '').trim().length === 0;
+    if (!extra || extra.is_user) {
+        return false;
+    }
+    const extraMes = String(extra.mes || '').trim();
+    if (!extraMes) {
+        return true;
+    }
+    // 草稿以这条半截消息开头 → 说明它就是被打断的那一条，接回时直接补全
+    const draft = String(snapshot.text || '');
+    return Boolean(draft) && draft.startsWith(extraMes) && draft.length > extraMes.length;
 }
 
 function scanForRecovery() {
     ensureUI();
     const key = currentChatKey();
+
+    // 已经完整落进聊天的草稿顺手清掉，别让存储越堆越多
+    for (const snapshot of readAll()) {
+        if (snapshot.chatKey === key && chatDraftLanded(snapshot)) {
+            removeSnapshot(snapshot.id);
+        }
+    }
+
     const candidates = readAll().filter((snapshot) => snapshot.chatKey === key
-        && !hasTextSavedInChat(snapshot)
         && matchesAnchor(snapshot));
 
     if (!candidates.length) {
@@ -661,8 +842,10 @@ function updateMessageInDom(ctx, index, message) {
 async function saveChatQuiet(ctx) {
     try {
         await ctx.saveChat?.();
+        return true;
     } catch (error) {
         console.warn(TAG, 'saveChat failed', error);
+        return false;
     }
 }
 
@@ -675,15 +858,26 @@ function resumePromptText() {
  * 替你发一条接续指令。
  * 走的完全是酒馆的标准路径：写进输入框 → 调 Generate('normal')，
  * Generate 会自己读输入框、清空、把这条消息塞进聊天再请求。
+ * 发送失败时把指令重新填回输入框 —— 因为 Generate 已经把框清空了，
+ * 不填回去就等于「指令丢了」。
  */
 function sendResumePrompt() {
     const ctx = getContext();
     const prompt = resumePromptText();
+
+    if (generating) {
+        putToTextarea(prompt);
+        toast('酒馆正在生成中，指令已放进输入框，等这次写完按发送', 'warning');
+        return;
+    }
+
     putToTextarea(prompt);
     if (typeof ctx.generate === 'function') {
         Promise.resolve(ctx.generate('normal')).catch((error) => {
-            console.error(TAG, 'auto prompt failed', error);
-            toast('自动发送失败，指令已留在输入框，按发送即可', 'warning');
+            // 这条是降级路径，不是致命错误，用 warn 记录即可
+            console.warn(TAG, 'auto prompt failed', error);
+            putToTextarea(prompt);
+            toast('自动发送失败，指令已放回输入框，按发送即可', 'warning');
         });
         return;
     }
@@ -713,6 +907,49 @@ async function resumeSnapshot(snapshot, { thenPrompt = false } = {}) {
     } finally {
         resuming = false;
     }
+}
+
+/**
+ * 给接回的消息补齐酒馆渲染 / swipe 需要的字段。
+ * 缺 swipe_id / swipes / swipe_info 时，这条消息虽然能显示，
+ * 但右滑、重新生成这些按钮的行为会和普通消息不一致。
+ */
+function normalizeMessageFields(node, snapshot, ctx) {
+    node.is_user = Boolean(node.is_user);
+    node.is_system = Boolean(node.is_system);
+    node.mes = String(node.mes || '');
+    node.send_date = node.send_date || new Date().toISOString();
+    if (!node.extra || typeof node.extra !== 'object') {
+        node.extra = {};
+    }
+    if (!Array.isArray(node.swipes) || !node.swipes.length) {
+        node.swipes = [node.mes];
+    }
+    if (typeof node.swipe_id !== 'number') {
+        node.swipe_id = Math.max(0, node.swipes.length - 1);
+    }
+    if (!Array.isArray(node.swipe_info) || !node.swipe_info.length) {
+        node.swipe_info = node.swipes.map((mes) => ({
+            send_date: node.send_date,
+            gen_started: snapshot.startedAt,
+            gen_finished: Date.now(),
+            extra: { ...node.extra },
+        }));
+    }
+    // 群聊里补对头像，不然接回来的消息可能顶着空白头像
+    if (!node.is_user && !node.force_avatar && ctx.groupId) {
+        try {
+            const member = Array.isArray(ctx.characters)
+                ? ctx.characters.find((c) => c && c.name === node.name && c.avatar && c.avatar !== 'none')
+                : null;
+            if (member && typeof ctx.getThumbnailUrl === 'function') {
+                node.force_avatar = ctx.getThumbnailUrl('avatar', member.avatar);
+            }
+        } catch (error) {
+            console.warn(TAG, 'group avatar resolve failed', error);
+        }
+    }
+    return node;
 }
 
 async function doResume(snapshot, { thenPrompt = false } = {}) {
@@ -746,11 +983,36 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
         // 原来是在续写同一条消息 → 把草稿接回那条消息
         const base = typeof snapshot.baseMes === 'string' ? snapshot.baseMes : '';
         anchor.mes = `${base}${text}`;
+        normalizeMessageFields(anchor, snapshot, ctx);
         updateMessageInDom(ctx, anchorIndex, anchor);
-        await saveChatQuiet(ctx);
+        const saved = await saveChatQuiet(ctx);
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
-        toast(thenPrompt ? '已接回，正在发续写指令…' : '已接回断点位置', 'success');
+        toast(saved
+            ? (thenPrompt ? '已接回，正在发续写指令…' : '已接回断点位置')
+            : '已接回，但保存聊天失败 —— 先别刷新页面', saved ? 'success' : 'warning');
+        if (thenPrompt) {
+            sendResumePrompt();
+        }
+        return;
+    }
+
+    // 聊天里留着一条被中断的半截消息，而草稿是它的完整版 → 直接补全那条，不新增
+    const extraIndex = snapshot.chatLen;
+    const extra = chat.length === snapshot.chatLen + 1 ? chat[extraIndex] : null;
+    const extraMes = extra && !extra.is_user ? String(extra.mes || '').trim() : '';
+    const canCompleteHalf = Boolean(extraMes) && text.startsWith(extraMes);
+
+    if (canCompleteHalf && extra) {
+        extra.mes = text;
+        normalizeMessageFields(extra, snapshot, ctx);
+        updateMessageInDom(ctx, extraIndex, extra);
+        const saved = await saveChatQuiet(ctx);
+        removeSnapshot(snapshot.id);
+        pendingSnapshot = null;
+        toast(saved
+            ? '已把草稿补进那条被中断的消息'
+            : '已补进聊天，但保存聊天失败 —— 先别刷新页面', saved ? 'success' : 'warning');
         if (thenPrompt) {
             sendResumePrompt();
         }
@@ -758,8 +1020,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
     }
 
     // 普通回复 → 把草稿作为一条新的角色消息塞回聊天
-    // （可选）再替你发一条续写指令，让模型接着往下写
-    const node = {
+    const node = normalizeMessageFields({
         name: snapshot.charName || ctx.name2 || 'Character',
         is_user: false,
         is_system: false,
@@ -771,7 +1032,7 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
             api: 'generation-guardian',
             model: 'recovered-draft',
         },
-    };
+    }, snapshot, ctx);
 
     try {
         const keepLen = chat.length;
@@ -780,13 +1041,29 @@ async function doResume(snapshot, { thenPrompt = false } = {}) {
             throw new Error('addOneMessage unavailable');
         }
         ctx.addOneMessage(node, { type: 'append' });
-        await saveChatQuiet(ctx);
+        const saved = await saveChatQuiet(ctx);
         if (typeof ctx.scrollChatToBottom === 'function') {
             ctx.scrollChatToBottom();
         }
         console.log(TAG, 'draft inserted', keepLen, '->', chat.length);
+        if (!saved) {
+            toast('草稿已放回聊天，但保存聊天失败 —— 先别刷新页面', 'warning');
+        }
     } catch (error) {
         console.warn(TAG, 'insert draft failed', error);
+        // 回滚刚 push 进 chat 的那条，避免「幽灵消息 + 输入框」两份
+        const index = chat.indexOf(node);
+        if (index !== -1) {
+            try {
+                ctx.deleteMessage?.(index);
+            } catch {
+                /* 忽略渲染层清理失败 */
+            }
+            const stillThere = chat.indexOf(node);
+            if (stillThere !== -1) {
+                chat.splice(stillThere, 1);
+            }
+        }
         putToTextarea(text);
         removeSnapshot(snapshot.id);
         pendingSnapshot = null;
@@ -994,9 +1271,12 @@ function initOnce() {
     setTimeout(scanForRecoverySafe, 600);
 
     window.GenerationGuardian = {
-        version: '1.1.0',
+        version: '1.2.0',
         settings: settings,
         snapshots: readAll,
+        /** 内存里正在写的这条草稿（localStorage 写不进去时的逃生口，复制即可救回） */
+        liveDraft: () => (buffer ? String(buffer.text || '') : ''),
+        isGenerating: () => generating,
         scan: scanForRecoverySafe,
         clear: () => writeAll([]),
         copy: copyText,
