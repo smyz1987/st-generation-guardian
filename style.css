@@ -40,6 +40,15 @@ body.gg-theme-frost {
 [data-gg-theme="neon"] { --gg-a: #f1444e; --gg-a2: #ffae81; --gg-deep: #212934; --gg-tint: #4b536b; --gg-on: #fff3ec; }
 [data-gg-theme="frost"] { --gg-a: #8ba3c5; --gg-a2: #f0ecdd; --gg-deep: #23354d; --gg-tint: #495b7d; --gg-on: #0b1728; }
 
+/* ---------- 酒馆开着浅色主题时的同色系深版 ----------
+ * 面板底色读的是酒馆的 --SmartThemeBlurTintColor，所以酒馆用浅色主题时面板也是浅的。
+ * 上面那四套强调色是配深底调的，压在浅底上会发飘；检测到浅底就换这套。
+ * gg-light-surface 由 index.js 的 detectSurface() 按底色亮度挂上去。 */
+body.gg-light-surface.gg-theme-trianon { --gg-a: #8a6a1f; --gg-a2: #b08c33; --gg-deep: #4a3a12; --gg-tint: #8f7328; --gg-on: #fdf8ec; }
+body.gg-light-surface.gg-theme-dusk { --gg-a: #9c5f63; --gg-a2: #c07a62; --gg-deep: #3c4152; --gg-tint: #6f6478; --gg-on: #fdf2ef; }
+body.gg-light-surface.gg-theme-neon { --gg-a: #c1322b; --gg-a2: #d4713f; --gg-deep: #1d242c; --gg-tint: #3f4658; --gg-on: #fff3ec; }
+body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-deep: #1a2938; --gg-tint: #3d5169; --gg-on: #f4f8fc; }
+
 /* 派生色：声明在元素上，才能吃到 body 继承来的当前主题色 */
 #gg-badge,
 #gg-panel,
