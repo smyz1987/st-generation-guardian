@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -65,6 +65,8 @@ const DEFAULT_SETTINGS = {
     autoRestore: true,
     // 生成中是否同时拦住「启用 / 禁用 / 更新 / 删除 / 清理」这类会 location.reload() 的扩展操作
     blockExtensionOps: true,
+    // 生成中是否拦住扩展的自动更新 / 安装 / 删除请求（它们会刷新页面）
+    delayReload: true,
     // 生成中是否显示「已保存 N 字」的浮动徽标
     showBadge: true,
     // 点「续写」后是否立刻替你发出去；关掉就只把指令填进输入框，自己改完按发送
@@ -464,13 +466,16 @@ let stallTimer = null;
  * 所以再加一条：草稿必须还在动（GENERATION_STALE_MS 内有过 token）。
  */
 function activelyGenerating() {
-    if (!generating) {
+    if (!generating || !buffer) {
         return false;
     }
-    if (!buffer) {
-        return false;
+    if (Date.now() - Number(buffer.updatedAt || 0) < GENERATION_STALE_MS) {
+        return true;
     }
-    return Date.now() - Number(buffer.updatedAt || 0) < GENERATION_STALE_MS;
+    // 结束事件丢了 / 页面休眠回来：就地解开，别继续挡刷新和扩展操作。
+    // releaseGeneration 里会先把 generating 置 false，所以不会递归回来。
+    releaseGeneration();
+    return false;
 }
 
 /** 生成状态卡死（结束事件丢了）时，把它解开，别让它继续挡路 */
@@ -758,9 +763,81 @@ function guardReloadProneClick(event) {
     if (!hit) {
         return;
     }
+    // 按住 Shift 点 = 这次放行（草稿先落盘再让它去刷）
+    if (event.shiftKey) {
+        try {
+            flushNow();
+        } catch (error) {
+            console.warn(TAG, error);
+        }
+        toast('已放行这一次（草稿已保存，刷新回来会自动补回）', 'info');
+        return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
-    toast('正在生成中，这个操作会刷新页面把回复刷掉 —— 等这条回复写完再动扩展', 'warning');
+    try {
+        flushNow();
+    } catch (error) {
+        console.warn(TAG, error);
+    }
+    toast('正在生成中，这个操作会刷新页面把回复刷掉 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
+}
+
+/* ------------------------------------------------------------------ *
+ * 生成中拦住扩展管理类请求（自动更新 / 安装 / 删除 / 换分支 …）
+ *
+ * 浏览器不允许改写 location.reload（HTML 规范里 Location 的属性是
+ * Unforgeable，defineProperty 一定抛错），所以「把刷新延后」是做不到的。
+ * 但这类刷新都源自一次 API 请求：请求被拦下 → 服务端没真的动扩展 → 也就不会刷新。
+ * 只拦这几个 /api/extensions/* 管理接口，且只在生成中、且开关打开时，其他请求一概不碰。
+ * ------------------------------------------------------------------ */
+
+const EXTENSION_API_PATTERN = /\/api\/extensions\/(update|install|delete|move|branch|clean|version)\b/i;
+const RAW_FETCH = (() => {
+    try {
+        return typeof window.fetch === 'function' ? window.fetch : null;
+    } catch (error) {
+        return null;
+    }
+})();
+let fetchShieldInstalled = false;
+
+function isExtensionAdminRequest(input) {
+    try {
+        const url = typeof input === 'string'
+            ? input
+            : String(input?.url || input?.toString?.() || '');
+        return EXTENSION_API_PATTERN.test(url);
+    } catch (error) {
+        return false;
+    }
+}
+
+function installFetchShield() {
+    if (fetchShieldInstalled || !RAW_FETCH) {
+        return;
+    }
+    try {
+        window.fetch = function guardedFetch(input, init) {
+            try {
+                if (settings().enabled && settings().delayReload && activelyGenerating() && isExtensionAdminRequest(input)) {
+                    try {
+                        flushNow();
+                    } catch (error) {
+                        console.warn(TAG, error);
+                    }
+                    toast('正在生成中，已拦下一个扩展管理请求（它会让页面刷新）—— 等这条回复写完再操作', 'warning');
+                    return Promise.reject(new Error('GenerationGuardian: extension admin request blocked'));
+                }
+            } catch (error) {
+                /* 判断出错就照常放行，绝不因为护栏本身挡住正常请求 */
+            }
+            return RAW_FETCH.apply(this, arguments);
+        };
+        fetchShieldInstalled = true;
+    } catch (error) {
+        console.warn(TAG, 'fetch shield unavailable, fallback to click guard only');
+    }
 }
 
 /* ------------------------------------------------------------------ *
@@ -799,10 +876,24 @@ function showRestoredCard(snapshot) {
     el('gg-panel').classList.remove('gg-hidden');
 }
 
-/** 撤销自动补回：把那条从聊天里拿掉，草稿放回「已保存草稿」，回到手动模式 */
+/**
+ * 撤销自动补回：把那条从聊天里拿掉，草稿放回「已保存草稿」，回到手动模式。
+ * 撤销需要的「第几条 / 原文」记在面板的 dataset 上，而不是只放在模块变量里 ——
+ * 万一扩展被重复加载、或者两个标签页同时在跑，另一个实例点撤销也能拿到同一份记录。
+ */
 async function undoAutoRestore() {
-    const record = lastAutoRestore;
+    const panel = el('gg-panel');
+    const raw = panel?.dataset?.undo || '';
+    let record = null;
+    try {
+        record = raw ? JSON.parse(raw) : lastAutoRestore;
+    } catch (error) {
+        record = lastAutoRestore;
+    }
     lastAutoRestore = null;
+    if (panel?.dataset) {
+        delete panel.dataset.undo;
+    }
     hidePanel();
     if (!record) {
         return;
@@ -832,10 +923,24 @@ async function undoAutoRestore() {
         }
     }
 
-    // 草稿还回去，免得撤销一下就把内容弄丢了
-    // 打上 autoSuppressed：刷新后不会再自动补回这条，只弹手动卡片
-    if (record.snapshot) {
-        upsertSnapshot({ ...record.snapshot, autoSuppressed: true, updatedAt: Date.now() });
+    // 草稿还回去：内容直接用刚拿掉的那条正文重建，所以不依赖当初存下来的一大坨对象。
+    // 打上 autoSuppressed：刷新后不会再自动补回这条，只弹手动卡片，避免「撤销完又自己长回来」。
+    if (record.text) {
+        upsertSnapshot({
+            id: `undo-${Date.now().toString(36)}`,
+            chatKey: record.chatKey || currentChatKey(),
+            chatLen: Math.max(0, index),
+            tailHash: tailSignature(Math.max(0, index)),
+            tailHead: '',
+            tailIsUser: false,
+            type: 'normal',
+            charName: String(ctx.name2 || '').slice(0, 80),
+            baseMes: null,
+            text: String(record.text),
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+            autoSuppressed: true,
+        });
     }
     toast('已撤销补回，草稿还在「已保存草稿」里', 'info');
 }
@@ -930,6 +1035,9 @@ function showPanel(snapshot) {
     const preview = el('gg-recover-preview');
 
     panel.classList.remove('gg-hidden');
+    if (panel.dataset) {
+        delete panel.dataset.undo;
+    }
     meta.textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · ${typeLabel(snapshot.type)} · 已保住 ${snapshot.text.length} 字${snapshot.truncated ? '（过长已截断）' : ''}`;
 
     const head = '……（前面已生成的部分）\n';
@@ -1004,8 +1112,15 @@ function matchesAnchor(snapshot) {
 }
 
 async function scanForRecovery() {
-    ensureUI();
-    const key = currentChatKey();
+    // 扩展被重复加载 / 两个标签页同时在跑时，别让两次扫描互相踩（互相 hidePanel / 重复补回）
+    const guard = globalThis.__ggScanRunning;
+    if (guard && Date.now() - Number(guard) < 3000) {
+        return;
+    }
+    globalThis.__ggScanRunning = Date.now();
+    try {
+        ensureUI();
+        const key = currentChatKey();
 
     // 已经完整落进聊天的草稿顺手清掉，别让存储越堆越多
     for (const snapshot of readAll()) {
@@ -1033,8 +1148,12 @@ async function scanForRecovery() {
     if (settings().enabled && settings().autoRestore && autoEligible && !activelyGenerating() && !resuming) {
         const result = await resumeSnapshot(top, { thenPrompt: false });
         if (result && result.mode === 'append') {
-            // 新插一条进聊天 → 给「撤销补回」留个记录
-            lastAutoRestore = { index: result.index, text: String(top.text || ''), chatKey: key, snapshot: top };
+            // 新插一条进聊天 → 给「撤销补回」留个记录（也写到 dataset，跨实例可用）
+            const record = { index: result.index, text: String(top.text || ''), chatKey: key };
+            lastAutoRestore = record;
+            if (el('gg-panel')) {
+                el('gg-panel').dataset.undo = JSON.stringify(record);
+            }
             showRestoredCard(top);
             toast(`已把被打断的 ${String(top.text || '').length} 字自动补回聊天`, 'success');
             return;
@@ -1052,6 +1171,9 @@ async function scanForRecovery() {
 
     pendingSnapshot = top;
     showPanel(pendingSnapshot);
+    } finally {
+        globalThis.__ggScanRunning = null;
+    }
 }
 
 function updateMessageInDom(ctx, index, message) {
@@ -1332,6 +1454,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 更新 / 删除 / 清理）</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-delayreload"><span>生成中拦住扩展的自动更新 / 安装 / 删除请求（这些会让页面刷新）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」直接发送（关掉则只填进输入框）</span></label>
@@ -1356,7 +1479,7 @@ const SETTINGS_HTML = `
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.2.2</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.2</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 
@@ -1375,6 +1498,7 @@ function mountSettings() {
     el('gg-set-enabled').checked = Boolean(s.enabled);
     el('gg-set-block').checked = Boolean(s.blockReload);
     el('gg-set-ops').checked = Boolean(s.blockExtensionOps);
+    el('gg-set-delayreload').checked = Boolean(s.delayReload);
     el('gg-set-badge').checked = Boolean(s.showBadge);
     el('gg-set-autosend').checked = Boolean(s.autoSend);
     el('gg-set-autorestore').checked = Boolean(s.autoRestore);
@@ -1427,6 +1551,8 @@ function mountSettings() {
         s.enabled = Boolean(event.target.checked);
         if (!s.enabled) {
             generating = false;
+            buffer = null;
+            clearStallWatch();
             disarmUnloadGuard();
             updateBadge('');
             hidePanel();
@@ -1458,6 +1584,10 @@ function mountSettings() {
     });
     el('gg-set-ops').addEventListener('change', (event) => {
         s.blockExtensionOps = Boolean(event.target.checked);
+        persistSettings();
+    });
+    el('gg-set-delayreload').addEventListener('change', (event) => {
+        s.delayReload = Boolean(event.target.checked);
         persistSettings();
     });
     el('gg-set-badge').addEventListener('change', (event) => {
@@ -1632,6 +1762,7 @@ function initOnce() {
     ensureUI();
     applyTheme();
     mountSettings();
+    installFetchShield();
     // 让刷新/重载后的恢复卡片晚一点出现，等聊天先渲染完
     setTimeout(scanForRecoverySafe, 600);
 
