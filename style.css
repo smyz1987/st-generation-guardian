@@ -119,18 +119,21 @@ body.gg-theme-lotus,
     align-items: center;
     gap: 8px;
     padding: 7px 13px;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 11.5px;
     letter-spacing: 0.03em;
     line-height: 1.3;
     color: var(--gg-ink);
     background: var(--gg-deep);
-    border: 1px solid color-mix(in srgb, var(--gg-deep) 80%, #1e1a18);
+    border: 0;
     box-shadow:
-        inset 1px 1px 0 color-mix(in srgb, #fff 18%, transparent),
-        0 6px 18px color-mix(in srgb, var(--gg-deep) 34%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.3);
-    backdrop-filter: blur(14px) saturate(1.3);
+        inset 0 1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 0 color-mix(in srgb, #1e1a18 22%, transparent),
+        0 1px 2px rgba(20, 16, 14, 0.1),
+        0 8px 20px color-mix(in srgb, var(--gg-deep) 36%, transparent),
+        0 24px 40px -22px color-mix(in srgb, var(--gg-deep) 40%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    backdrop-filter: blur(16px) saturate(1.4);
     pointer-events: none;
     max-width: 62vw;
     overflow: hidden;
@@ -166,33 +169,66 @@ body.gg-theme-lotus,
 
 #gg-panel .gg-card {
     position: relative;
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     gap: 12px;
     width: 100%;
     padding: 17px 16px 15px;
-    border-radius: 12px;
+    border-radius: 14px;
     color: var(--gg-text);
-    background: color-mix(in srgb, var(--gg-card) 92%, transparent);
-    border: 1px solid var(--gg-border);
+    background: radial-gradient(130% 92% at 50% 14%,
+        color-mix(in srgb, var(--gg-card) 96%, transparent) 0%,
+        color-mix(in srgb, var(--gg-card) 88%, transparent) 46%,
+        color-mix(in srgb, var(--gg-card) 66%, transparent) 100%);
+    border: 0;
     box-shadow:
-        inset 1px 1px 0 var(--gg-lift),
-        inset -1px -1px 0 var(--gg-sink),
-        0 18px 42px color-mix(in srgb, var(--gg-primary) 24%, transparent);
-    -webkit-backdrop-filter: blur(20px) saturate(1.35);
-    backdrop-filter: blur(20px) saturate(1.35);
+        inset 0 1px 0 rgba(255, 255, 255, 0.8),
+        inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
+        inset 0 24px 44px -26px rgba(255, 255, 255, 0.5),
+        0 1px 2px rgba(20, 16, 14, 0.06),
+        0 18px 44px color-mix(in srgb, var(--gg-primary) 24%, transparent),
+        0 52px 96px -48px color-mix(in srgb, var(--gg-primary) 22%, transparent);
+    -webkit-backdrop-filter: blur(32px) saturate(1.6) brightness(1.08);
+    backdrop-filter: blur(32px) saturate(1.6) brightness(1.08);
 }
 
-/* 顶部一条 1px 主色细线，比阴影更能定住卡片上边 */
+#gg-panel .gg-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(148deg,
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(255, 255, 255, 0.26) 18%,
+        rgba(196, 224, 255, 0.12) 38%,
+        rgba(255, 255, 255, 0.02) 46%,
+        color-mix(in srgb, var(--gg-deep) 20%, transparent) 74%,
+        rgba(255, 208, 214, 0.1) 90%,
+        rgba(255, 255, 255, 0.4) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* 卡片顶部那团斜向反光，跟面板同一配方 */
 #gg-panel .gg-card::before {
     content: "";
     position: absolute;
-    left: 16px;
-    right: 16px;
+    left: 0;
+    right: 0;
     top: 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--gg-accent), transparent 72%);
+    height: 110px;
+    border-radius: inherit;
+    background:
+        radial-gradient(130% 110% at 14% -8%, rgba(255, 255, 255, 0.38), transparent 60%),
+        radial-gradient(5px 5px at 14px 12px, rgba(255, 255, 255, 0.9), transparent 72%);
     pointer-events: none;
+    z-index: -1;
 }
 
 #gg-panel .gg-head {
@@ -427,35 +463,100 @@ body.gg-theme-lotus,
     padding: 0;
 }
 
-/* 面板本体：全站最亮的一层，浮在底色上 */
+/* 面板本体：全站最亮的一层，浮在底色上
+ *
+ * 液态玻璃那套方案的核心是「CSS 定义形，WebGL 定义光」，真实折射要 WebGL
+ * 重算背景才拿得到。面板里没有 WebGL 的位置，所以这里用 CSS 把玻璃的
+ * 光学特征逐条逼近：
+ *   1) 背景真的透上来：card 只铺 90%，后面 blur 26px + saturate 1.5 + brightness 1.06，
+ *      黑底和深底也不会把面板压暗；
+ *   2) 边缘光有方向：顶部 1px 强高光、底部 1px 暗边，再加一圈不均匀的
+ *      渐变细边框（左上最亮→右下转暗→右下角再回一点光），这是玻璃最容易认的一处；
+ *   3) 板身有斜向反光：顶部一块 120px 的径向白，偏左上，强度 42%，往下 58% 淡出；
+ *   4) 厚度：20px 内阴影把上沿往里压，底部用暗边收口；
+ *   5) 双层投影：一层贴地的 1px 接触影，一层散开的环境影。
+ */
 #gg-settings .gg-sheet {
     position: relative;
+    isolation: isolate;
     margin-top: 11px;
     padding: 20px 18px 16px;
-    border-radius: 12px;
+    border-radius: 14px;
     color: var(--gg-text);
-    background: color-mix(in srgb, var(--gg-card) 95%, transparent);
-    border: 1px solid var(--gg-border);
+    /* 真玻璃是中间厚、边缘薄：中心接近实白保证可读，四周才透出背景。
+       纯色 72% 会让整块板发脏，径向渐变就没这个问题。 */
+    background: radial-gradient(128% 88% at 50% 16%,
+        color-mix(in srgb, var(--gg-card) 95%, transparent) 0%,
+        color-mix(in srgb, var(--gg-card) 88%, transparent) 44%,
+        color-mix(in srgb, var(--gg-card) 64%, transparent) 100%);
+    border: 0;
     box-shadow:
-        inset 1px 1px 0 var(--gg-lift),
-        inset -1px -1px 0 var(--gg-sink),
-        0 14px 36px color-mix(in srgb, var(--gg-primary) 18%, transparent);
-    -webkit-backdrop-filter: blur(18px) saturate(1.3);
-    backdrop-filter: blur(18px) saturate(1.3);
+        inset 0 1px 0 rgba(255, 255, 255, 0.88),
+        inset 1px 0 0 rgba(255, 255, 255, 0.38),
+        inset -1px 0 0 rgba(255, 255, 255, 0.2),
+        inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
+        inset 0 24px 44px -26px rgba(255, 255, 255, 0.55),
+        0 1px 2px rgba(20, 16, 14, 0.05),
+        0 16px 40px color-mix(in srgb, var(--gg-primary) 20%, transparent),
+        0 44px 88px -44px color-mix(in srgb, var(--gg-primary) 20%, transparent);
+    -webkit-backdrop-filter: blur(32px) saturate(1.6) brightness(1.08);
+    backdrop-filter: blur(32px) saturate(1.6) brightness(1.08);
+}
+
+/* 渐变细边框：一圈粗细一样、但亮度有方向变化的 1px */
+#gg-settings .gg-sheet::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(148deg,
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(255, 255, 255, 0.26) 18%,
+        rgba(196, 224, 255, 0.12) 38%,
+        rgba(255, 255, 255, 0.02) 46%,
+        color-mix(in srgb, var(--gg-deep) 20%, transparent) 74%,
+        rgba(255, 208, 214, 0.1) 90%,
+        rgba(255, 255, 255, 0.4) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
 }
 
 /* ---------- 分区标题 ---------- */
 
-/* 面板顶部一条主色细线收口，跟恢复卡片同一手法 */
+/* 板身的斜向反光：偏左上的一团白 + 左上角一颗高光点，极慢地横向漂
+   ——液态玻璃是「会动」的，但这里只给 26 秒一个来回，不抢内容。 */
 #gg-settings .gg-sheet::before {
     content: "";
     position: absolute;
-    left: 18px;
-    right: 18px;
+    left: 0;
+    right: 0;
     top: 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--gg-deep), transparent 68%);
+    height: 132px;
+    border-radius: inherit;
+    background:
+        linear-gradient(118deg, transparent 26%, rgba(255, 255, 255, 0.26) 38%, rgba(255, 255, 255, 0.05) 45%, transparent 58%),
+        radial-gradient(130% 110% at 14% -8%, rgba(255, 255, 255, 0.42), transparent 60%),
+        radial-gradient(66% 70% at 88% -6%, rgba(255, 255, 255, 0.14), transparent 62%),
+        radial-gradient(5px 5px at 15px 13px, rgba(255, 255, 255, 0.92), transparent 72%);
     pointer-events: none;
+    z-index: -1;
+    animation: gg-sheen 26s ease-in-out infinite;
+}
+
+@keyframes gg-sheen {
+    0%, 100% { transform: translateX(-6%); }
+    50% { transform: translateX(6%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #gg-settings .gg-sheet::before {
+        animation: none;
+    }
 }
 
 #gg-settings .gg-sub {
