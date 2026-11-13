@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.8';
+const VERSION = '1.3.9';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -136,38 +136,6 @@ function themeKey() {
     return Object.prototype.hasOwnProperty.call(THEMES, value) ? value : DEFAULT_THEME;
 }
 
-/**
- * 面板底色本身是透明的（读酒馆的 --SmartThemeBlurTintColor），所以它会跟着酒馆主题走。
- * 但四套主题的强调色原本是配深色底调的，碰上浅色酒馆主题就会「浅金压在浅底上」看不清。
- * 这里读一次酒馆给的面板底色亮度，浅底就给 body 挂 gg-light-surface，让 CSS 换成同色系深版。
- * 读不到（比如别的前端桩）就当深色，绝不因为这事影响渲染。
- */
-function detectSurface() {
-    const body = document.body;
-    if (!body || !body.classList) {
-        return;
-    }
-    let light = false;
-    try {
-        const raw = (getComputedStyle(body).getPropertyValue('--SmartThemeBlurTintColor') || '').trim();
-        const rgb = raw.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
-        if (rgb) {
-            const lum = (0.2126 * Number(rgb[1]) + 0.7152 * Number(rgb[2]) + 0.0722 * Number(rgb[3])) / 255;
-            light = lum > 0.6;
-        } else {
-            const hex = raw.match(/^#([0-9a-fA-F]{6})$/);
-            if (hex) {
-                const v = hex[1];
-                const lum = (0.2126 * parseInt(v.slice(0, 2), 16) + 0.7152 * parseInt(v.slice(2, 4), 16) + 0.0722 * parseInt(v.slice(4, 6), 16)) / 255;
-                light = lum > 0.6;
-            }
-        }
-    } catch (error) {
-        console.warn(TAG, 'surface detect failed', error);
-    }
-    body.classList.toggle('gg-light-surface', light);
-}
-
 /** 把主题 class 挂到 body 上；只碰这几个 class，不动酒馆自己的任何东西 */
 function applyTheme() {
     const body = document.body;
@@ -178,7 +146,6 @@ function applyTheme() {
         for (const key of Object.keys(THEMES)) {
             body.classList.toggle(`gg-theme-${key}`, key === themeKey());
         }
-        detectSurface();
     } catch (error) {
         console.warn(TAG, 'apply theme failed', error);
     }
@@ -1169,7 +1136,6 @@ function ensureUI() {
 
 function showPanel(snapshot) {
     ensureUI();
-    detectSurface();
     panelMode = 'manual';
     setPanelButtons('manual');
     el('gg-recover-title').textContent = '检测到未完成的回复';

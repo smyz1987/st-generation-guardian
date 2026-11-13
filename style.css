@@ -3,60 +3,66 @@
 /* ---------- 主题色板：色号取自参考图的实测取值 ---------- */
 
 body.gg-theme-trianon {
-    --gg-a: #c9a961;      /* 强调：凡尔赛金 */
-    --gg-a2: #e2cb92;     /* 次色：浅金 */
-    --gg-deep: #7a5f2b;   /* 深色 */
-    --gg-tint: #c9a961;
-    --gg-on: #261f16;     /* 主按钮上的字色 */
+    /* 凡尔赛金 · 这套是我自己配的默认色，不是参考图里取的 */
+    --gg-surface: #241d13;
+    --gg-text: #f7f0dc;
+    --gg-dim: #8a7248;
+    --gg-a: #c9a961;
+    --gg-a2: #e2cb92;
+    --gg-tint: #a8925c;
+    --gg-on: #261f16;
 }
 
 body.gg-theme-dusk {
-    --gg-a: #cd9fa0;      /* Rosewood */
-    --gg-a2: #f2c1a3;     /* Peaches & Cream */
-    --gg-deep: #525871;   /* Concrete */
-    --gg-tint: #857c91;   /* Warm Steel */
-    --gg-on: #37262c;
+    /* 雪松黄昏 · 参考图 ① 的五个色号全用上，一个都不派生 */
+    --gg-surface: #525871;   /* Concrete —— 卡片底 */
+    --gg-text: #f8ccaa;      /* Dawn —— 正文 */
+    --gg-dim: #857c91;       /* Warm Steel —— 次级文字 */
+    --gg-a: #cd9fa0;         /* Rosewood —— 主强调 */
+    --gg-a2: #f2c1a3;        /* Peaches & Cream —— 高光与角线 */
+    --gg-tint: #857c91;
+    --gg-on: #2b1f24;
 }
 
 body.gg-theme-neon {
-    --gg-a: #f1444e;      /* Vermillion */
-    --gg-a2: #ffae81;     /* Honeydew */
-    --gg-deep: #212934;   /* Asphalt */
-    --gg-tint: #4b536b;   /* Blue Spruce */
+    /* 道顿堀霓虹 · 参考图 ② 的五个色号全用上 */
+    --gg-surface: #212934;   /* Asphalt —— 卡片底 */
+    --gg-text: #ffae81;      /* Honeydew —— 正文 */
+    --gg-dim: #4b536b;       /* Blue Spruce —— 次级文字 */
+    --gg-a: #f1444e;         /* Vermillion —— 主强调 */
+    --gg-a2: #c9947a;        /* Fawn —— 高光与角线 */
+    --gg-tint: #4b536b;
     --gg-on: #fff3ec;
 }
 
 body.gg-theme-frost {
-    --gg-a: #8ba3c5;      /* Frost Blue */
-    --gg-a2: #f0ecdd;     /* Moonlight */
-    --gg-deep: #23354d;   /* Storm */
-    --gg-tint: #495b7d;   /* Steel */
-    --gg-on: #0b1728;
+    /* 雪枝河岸 · 参考图 ③ 的五个色号全用上，唯一一套浅底 */
+    --gg-surface: #f0ecdd;   /* Moonlight —— 雪面底 */
+    --gg-text: #02122f;      /* Oxford Blue —— 浅底必须深字 */
+    --gg-dim: #495b7d;       /* Steel —— 次级文字 */
+    --gg-a: #8ba3c5;         /* Frost Blue —— 主强调 */
+    --gg-a2: #23354d;        /* Storm —— 浅底上的「高光」用更深的那支 */
+    --gg-tint: #495b7d;
+    --gg-on: #f0ecdd;
 }
 
 /* 单页并排预览时用元素级属性覆盖（扩展本身不会设这个属性） */
-[data-gg-theme="trianon"] { --gg-a: #c9a961; --gg-a2: #e2cb92; --gg-deep: #7a5f2b; --gg-tint: #c9a961; --gg-on: #261f16; }
-[data-gg-theme="dusk"] { --gg-a: #cd9fa0; --gg-a2: #f2c1a3; --gg-deep: #525871; --gg-tint: #857c91; --gg-on: #37262c; }
-[data-gg-theme="neon"] { --gg-a: #f1444e; --gg-a2: #ffae81; --gg-deep: #212934; --gg-tint: #4b536b; --gg-on: #fff3ec; }
-[data-gg-theme="frost"] { --gg-a: #8ba3c5; --gg-a2: #f0ecdd; --gg-deep: #23354d; --gg-tint: #495b7d; --gg-on: #0b1728; }
-
-/* ---------- 酒馆开着浅色主题时的同色系深版 ----------
- * 面板底色读的是酒馆的 --SmartThemeBlurTintColor，所以酒馆用浅色主题时面板也是浅的。
- * 上面那四套强调色是配深底调的，压在浅底上会发飘；检测到浅底就换这套。
- * gg-light-surface 由 index.js 的 detectSurface() 按底色亮度挂上去。 */
-body.gg-light-surface.gg-theme-trianon { --gg-a: #8a6a1f; --gg-a2: #b08c33; --gg-deep: #4a3a12; --gg-tint: #8f7328; --gg-on: #fdf8ec; }
-body.gg-light-surface.gg-theme-dusk { --gg-a: #9c5f63; --gg-a2: #c07a62; --gg-deep: #3c4152; --gg-tint: #6f6478; --gg-on: #fdf2ef; }
-body.gg-light-surface.gg-theme-neon { --gg-a: #c1322b; --gg-a2: #d4713f; --gg-deep: #1d242c; --gg-tint: #3f4658; --gg-on: #fff3ec; }
-body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-deep: #1a2938; --gg-tint: #3d5169; --gg-on: #f4f8fc; }
+[data-gg-theme="trianon"] { --gg-surface:#241d13; --gg-text:#f7f0dc; --gg-dim:#8a7248; --gg-a:#c9a961; --gg-a2:#e2cb92; --gg-tint:#a8925c; --gg-on:#261f16; }
+[data-gg-theme="dusk"] { --gg-surface:#525871; --gg-text:#f8ccaa; --gg-dim:#857c91; --gg-a:#cd9fa0; --gg-a2:#f2c1a3; --gg-tint:#857c91; --gg-on:#2b1f24; }
+[data-gg-theme="neon"] { --gg-surface:#212934; --gg-text:#ffae81; --gg-dim:#4b536b; --gg-a:#f1444e; --gg-a2:#c9947a; --gg-tint:#4b536b; --gg-on:#fff3ec; }
+[data-gg-theme="frost"] { --gg-surface:#f0ecdd; --gg-text:#02122f; --gg-dim:#495b7d; --gg-a:#8ba3c5; --gg-a2:#23354d; --gg-tint:#495b7d; --gg-on:#f0ecdd; }
 
 /* 派生色：声明在元素上，才能吃到 body 继承来的当前主题色 */
 #gg-badge,
 #gg-panel,
 #gg-settings {
+    --gg-surface2: color-mix(in srgb, var(--gg-surface, #241d13) 74%, #000);
     --gg-line: color-mix(in srgb, var(--gg-a, #c9a961) 58%, transparent);
-    --gg-line-soft: color-mix(in srgb, var(--gg-a, #c9a961) 26%, transparent);
-    --gg-wash: color-mix(in srgb, var(--gg-tint, #c9a961) 7%, transparent);
-    --gg-wash-strong: color-mix(in srgb, var(--gg-tint, #c9a961) 15%, transparent);
+    --gg-line-soft: color-mix(in srgb, var(--gg-a2, #e2cb92) 34%, transparent);
+    --gg-line-deep: color-mix(in srgb, var(--gg-surface2, #1a150e) 62%, transparent);
+    --gg-wash: color-mix(in srgb, var(--gg-dim, #a8925c) 12%, transparent);
+    --gg-wash-strong: color-mix(in srgb, var(--gg-dim, #a8925c) 24%, transparent);
+    --gg-halo: color-mix(in srgb, var(--gg-a, #c9a961) 34%, transparent);
 }
 
 /* ---------- 生成中的小徽标 ---------- */
@@ -74,7 +80,7 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     font-size: 11.5px;
     letter-spacing: 0.04em;
     line-height: 1.3;
-    color: var(--SmartThemeBodyColor, #e8e8e8);
+    color: var(--gg-text, #e8e8e8);
     background: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.9));
     border: 1px solid var(--gg-line);
     box-shadow: inset 0 0 0 1px var(--gg-line-soft), 0 5px 18px rgba(0, 0, 0, 0.32);
@@ -89,8 +95,8 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--gg-a, #c9a961);
-    box-shadow: 0 0 7px var(--gg-a, #c9a961);
+    background: var(--gg-a2, #e2cb92);
+    box-shadow: 0 0 8px var(--gg-a2, #e2cb92), 0 0 16px var(--gg-halo);
     animation: gg-pulse 1.4s ease-in-out infinite;
     flex: 0 0 auto;
 }
@@ -120,26 +126,33 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     width: 100%;
     padding: 18px 15px 14px;
     border-radius: 4px;
-    color: var(--SmartThemeBodyColor, #e8e8e8);
-    background-color: var(--SmartThemeBlurTintColor, rgba(18, 18, 22, 0.96));
+    color: var(--gg-text, #e8e8e8);
+    background-color: var(--gg-surface, rgba(18, 18, 22, 0.96));
     border: 1px solid var(--gg-line);
     box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
 
-    /* 四角的 L 形细线，用八条渐变画出来 */
+    /* 底层：三片渐变压出纵深（左上主色斜光 / 右侧中间色 / 底部压深），
+       再叠四角的 L 形细线，用最亮的 a2 画，和主色的外框拉开层次 */
     background-image:
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line)),
-        linear-gradient(var(--gg-line), var(--gg-line));
+        linear-gradient(158deg, color-mix(in srgb, var(--gg-a) 26%, transparent) 0%, transparent 44%),
+        linear-gradient(338deg, color-mix(in srgb, var(--gg-a2) 22%, transparent) 0%, transparent 50%),
+        linear-gradient(180deg, transparent 54%, color-mix(in srgb, var(--gg-surface2) 66%, transparent) 100%),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2)),
+        linear-gradient(var(--gg-a2), var(--gg-a2));
     background-repeat: no-repeat;
-    background-size: 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px;
+    background-size:
+        100% 100%, 100% 100%, 100% 100%,
+        18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px, 18px 1px, 1px 18px;
     background-position:
+        0 0, 0 0, 0 0,
         left 6px top 6px, left 6px top 6px,
         right 6px top 6px, right 6px top 6px,
         left 6px bottom 6px, left 6px bottom 6px,
@@ -155,7 +168,7 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     top: 4px;
     height: 5px;
     background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-line-soft);
+    border-bottom: 1px solid var(--gg-line);
     pointer-events: none;
 }
 
@@ -174,21 +187,29 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--gg-line-soft);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--gg-a) 12%, transparent), transparent);
 }
 
 #gg-panel .gg-title {
     font-weight: 700;
     font-size: 13.5px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
     padding-left: 2px;
+    color: var(--gg-a2, #e2cb92);
+    text-shadow: 0 0 14px var(--gg-halo);
 }
 
 #gg-panel .gg-title::before {
-    content: "◆";
-    color: var(--gg-a, #c9a961);
-    font-size: 9px;
-    margin-right: 7px;
+    content: "";
+    display: inline-block;
+    width: 2px;
+    height: 12px;
+    margin-right: 8px;
     vertical-align: middle;
+    background: linear-gradient(180deg, var(--gg-a2), var(--gg-a) 62%, var(--gg-mid));
+    box-shadow: 0 0 7px var(--gg-halo);
 }
 
 #gg-panel .gg-icon-btn {
@@ -212,7 +233,8 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
 #gg-panel .gg-meta {
     font-size: 11.5px;
     letter-spacing: 0.02em;
-    opacity: 0.72;
+    color: var(--gg-dim, #a8925c);
+    opacity: 0.96;
     line-height: 1.5;
     word-break: break-word;
     padding-left: 2px;
@@ -229,9 +251,9 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     line-height: 1.75;
     white-space: pre-wrap;
     word-break: break-word;
-    background: var(--gg-wash);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--gg-dim) 16%, transparent), color-mix(in srgb, var(--gg-surface2) 24%, transparent));
     border: 1px solid var(--gg-line-soft);
-    border-left: 2px solid var(--gg-line);
+    border-left: 2px solid var(--gg-a);
     -webkit-overflow-scrolling: touch;
     user-select: text;
     -webkit-user-select: text;
@@ -255,9 +277,10 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     letter-spacing: 0.03em;
     line-height: 1.2;
     cursor: pointer;
-    color: var(--SmartThemeBodyColor, #e8e8e8);
-    background: var(--gg-wash);
-    border: 1px solid var(--gg-line);
+    color: var(--gg-text, #e8e8e8);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--gg-dim) 18%, transparent), color-mix(in srgb, var(--gg-surface2) 34%, transparent));
+    border: 1px solid var(--gg-line-deep);
+    border-left: 2px solid var(--gg-line);
     transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease, box-shadow 0.16s ease;
 }
 
@@ -275,10 +298,12 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
 
 #gg-panel .gg-btn.gg-primary,
 #gg-settings .gg-btn.gg-primary {
-    background: linear-gradient(180deg, var(--gg-a2, #e2cb92), var(--gg-a, #c9a961));
+    background: linear-gradient(180deg, var(--gg-a2, #e2cb92) 0%, var(--gg-a, #c9a961) 56%, color-mix(in srgb, var(--gg-a, #c9a961) 62%, var(--gg-dim, #a8925c)) 100%);
     border-color: var(--gg-deep, #7a5f2b);
+    border-left: 2px solid var(--gg-a2, #e2cb92);
     color: var(--gg-on, #261f16);
     font-weight: 700;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 46%, transparent), 0 3px 10px var(--gg-line-deep);
 }
 
 #gg-panel .gg-btn.gg-primary:hover,
@@ -385,7 +410,7 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     top: 4px;
     height: 5px;
     background: repeating-linear-gradient(90deg, var(--gg-line-soft) 0 1px, transparent 1px 5px);
-    border-bottom: 1px solid var(--gg-line-soft);
+    border-bottom: 1px solid var(--gg-line);
     pointer-events: none;
 }
 
@@ -396,7 +421,7 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     margin: 16px 0 8px;
     font-size: 10.5px;
     letter-spacing: 0.14em;
-    color: var(--gg-a, #c9a961);
+    color: var(--gg-a2, #e2cb92);
 }
 
 #gg-settings .gg-sub:first-child {
@@ -405,9 +430,10 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
 
 #gg-settings .gg-sub::before {
     content: "";
-    width: 12px;
-    height: 1px;
-    background: var(--gg-line);
+    width: 2px;
+    height: 9px;
+    background: linear-gradient(180deg, var(--gg-a2, #e2cb92), var(--gg-a, #c9a961));
+    box-shadow: 0 0 6px var(--gg-halo);
     flex: 0 0 auto;
 }
 
@@ -502,6 +528,7 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     margin: 0;
     cursor: pointer;
     accent-color: var(--gg-a, #c9a961);
+    color: var(--gg-text, #e8e8e8);
 }
 
 #gg-settings .gg-inline span {
@@ -595,9 +622,9 @@ body.gg-light-surface.gg-theme-frost { --gg-a: #3f5d80; --gg-a2: #5b7594; --gg-d
     gap: 6px;
     padding: 6px 9px;
     border-radius: 3px;
-    background: var(--gg-wash);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--gg-dim) 16%, transparent), color-mix(in srgb, var(--gg-surface2) 24%, transparent));
     border: 1px solid var(--gg-line-soft);
-    border-left: 2px solid var(--gg-line);
+    border-left: 2px solid var(--gg-a);
 }
 
 #gg-settings .gg-snap-info {

@@ -1316,8 +1316,9 @@ async function scenarioHugeDraft() {
         JSON.stringify({ swipes: landed.swipes?.length, id: landed.swipe_id }));
     ok('正文存的是原始 markdown / HTML，没有被转义成纯文本',
         String(landed.mes) === big);
-    ok('酒馆没给面板底色变量时，不会误挂「浅色主题适配」',
-        !document.body.classList.contains('gg-light-surface'), document.body.className);
+    ok('主题只往 body 挂自己那一个 theme class，不会多挂别的开关',
+        document.body.classList.contains('gg-theme-trianon')
+        && !document.body.classList.contains('gg-light-surface'), document.body.className);
 
     delete extensionSettingsStub['generation-guardian'];
     restoreConsole();
