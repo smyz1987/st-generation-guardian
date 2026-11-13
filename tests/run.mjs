@@ -314,7 +314,7 @@ async function scenarioReloadAndResume() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
-    ok('调试入口暴露了 1.3.3 版本号', window.GenerationGuardian?.version === '1.3.3');
+    ok('调试入口暴露了 1.3.4 版本号', window.GenerationGuardian?.version === '1.3.4');
 }
 
 async function scenarioNormalCompletionKeepsNothing() {
@@ -507,7 +507,7 @@ async function scenarioSettingsPanel() {
     ok('有保留条数设置', Boolean(document.getElementById('gg-set-max')));
     ok('有保留天数设置', Boolean(document.getElementById('gg-set-days')));
     ok('有卡住提示秒数设置', Boolean(document.getElementById('gg-set-stall')));
-    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.3');
+    eq('面板里显示版本号', document.getElementById('gg-ver').textContent, '1.3.4');
     ok('指令框默认是剧情指令', document.getElementById('gg-set-prompt').value.startsWith('继续生成上一轮剧情'));
 
     eq('主题选择器有四套', document.querySelectorAll('#gg-themes .gg-theme').length, 4);
@@ -1053,6 +1053,10 @@ async function scenarioReloadShield() {
     await signalReady(ctx);
 
     ok('没有包装 window.fetch（和 claude-web / kimi / story-oracle 的 fetch 钩子零冲突', window.fetch === stubFetch);
+
+    const compatNames = Array.from(document.querySelectorAll('#gg-compat-list .gg-snap-title')).map((node) => node.textContent);
+    ok('兼容状态里列出了检测到的 Hot-Reload', compatNames.some((name) => name.includes('Hot-Reload')), compatNames.join('|'));
+    eq('兼容状态计数与条目数一致', document.getElementById('gg-compat-count').textContent, String(compatNames.length));
 
     const text = '她低头笑了，把杯子推回你手边。';
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);

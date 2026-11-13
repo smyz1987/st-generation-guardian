@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.3';
+const VERSION = '1.3.4';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -778,6 +778,7 @@ function guardReloadProneClick(event) {
     if (!hit) {
         return;
     }
+    const isRemoval = hit.classList.contains('btn_delete') || hit.classList.contains('btn_clean');
     // 按住 Shift 点 = 这次放行（草稿先落盘再让它去刷）
     if (event.shiftKey) {
         try {
@@ -795,7 +796,9 @@ function guardReloadProneClick(event) {
     } catch (error) {
         console.warn(TAG, error);
     }
-    toast('正在生成中，启用 / 禁用扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
+    toast(isRemoval
+        ? '正在生成中，删除 / 清理扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）'
+        : '正在生成中，启用 / 禁用扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
 }
 
 /* ------------------------------------------------------------------ *
@@ -1449,13 +1452,88 @@ const SETTINGS_HTML = `
         <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没新字就提示（0 关掉）</span></label>
 
         <div class="gg-diamond">◆</div>
+        <div class="gg-sub">兼容状态 <span class="gg-count" id="gg-compat-count">0</span></div>
+        <div id="gg-compat-list" class="gg-snap-list"></div>
+        <div class="gg-hint">这几个会主动刷新页面的扩展都逐个读过源码：能交给它自己的就交给它自己，拦不住的靠「刷新前先落盘 + 回来自动补回」。</div>
+
+        <div class="gg-diamond">◆</div>
         <div class="gg-sub">已保存草稿 <span class="gg-count" id="gg-snap-count">0</span></div>
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.3</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.4</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
+
+/* ------------------------------------------------------------------ *
+ * 兼容状态：把「逐个读源码」得出的结论摆进面板
+ *
+ * 只列「会主动刷新页面」的那几个，其余（TopInfoBar / Timelines / Silence）
+ * 查过是纯 UI，不刷新也不包装全局，没必要占地方。
+ * ------------------------------------------------------------------ */
+
+const KNOWN_INTERRUPT_SOURCES = [
+    {
+        name: 'Hot-Reload 热重载',
+        note: '生成中它自己会把重启延后到写完，我们不去插手',
+        detect: () => Boolean(extension_settings?.['extension_hot_reload']),
+    },
+    {
+        name: 'claude-web',
+        note: '只有你改布局 / 样式或点它的重载按钮才刷新，拦不到 —— 靠落盘 + 自动补回',
+        detect: () => Boolean(document.querySelector('[id^="claude-web-"]')),
+    },
+    {
+        name: 'story-oracle 故事神谕',
+        note: '「一键更新」成功后 5 秒自动刷新（点提示能取消）—— 5 秒已经够草稿写盘',
+        detect: () => Boolean(document.querySelector('[id^="so-"]')),
+    },
+    {
+        name: 'kimi 思维链注入',
+        note: '流式中会主动停止来截断，走「被中断」路径保住草稿',
+        detect: () => Boolean(document.querySelector('[id^="kimi"], [class*="kimi-"]')),
+    },
+];
+
+function renderCompatSection() {
+    const host = el('gg-compat-list');
+    const counter = el('gg-compat-count');
+    if (!host) {
+        return;
+    }
+    const detected = [];
+    for (const source of KNOWN_INTERRUPT_SOURCES) {
+        try {
+            if (source.detect()) {
+                detected.push(source);
+            }
+        } catch (error) {
+            /* 检测本身出错就当没装，绝不因此报错 */
+        }
+    }
+    if (counter) {
+        counter.textContent = String(detected.length);
+    }
+    host.textContent = '';
+    const rows = detected.length
+        ? detected
+        : [{ name: '没检测到一起会主动刷新的扩展', note: '本机这 7 个里，TopInfoBar / Timelines / Silence 只画 UI，不刷新' }];
+    for (const row of rows) {
+        const item = document.createElement('div');
+        item.className = 'gg-snap-row';
+        const info = document.createElement('div');
+        info.className = 'gg-snap-info';
+        const title = document.createElement('div');
+        title.className = 'gg-snap-title';
+        title.textContent = row.name;
+        const sub = document.createElement('div');
+        sub.className = 'gg-snap-sub';
+        sub.textContent = row.note;
+        info.append(title, sub);
+        item.appendChild(info);
+        host.appendChild(item);
+    }
+}
 
 function mountSettings() {
     const host = el('extensions_settings2') || el('extensions_settings');
@@ -1480,6 +1558,7 @@ function mountSettings() {
     el('gg-set-days').value = String(keepDays());
     el('gg-set-stall').value = String(Math.round(stallMs() / 1000));
     el('gg-ver').textContent = VERSION;
+    renderCompatSection();
 
     const renderThemes = () => {
         const host = el('gg-themes');
