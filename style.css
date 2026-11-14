@@ -807,16 +807,19 @@ body.gg-theme-lotus,
     }
 }
 
-/* ---------- 主题色卡：一块彩色底板，八张浅卡 ---------- */
+/* ---------- 主题色卡：浅托盘，八张浅卡 ---------- */
 
-/* 展开后八张浅卡压在同一块深色托盘上，彩色集中成一块，而不是每个设置项各一块。 */
+/* 这里原来是整块 --gg-deep。展开主题时，横条那 56px 和托盘那 350px 会连成
+   一整块 480×400 的实色 —— 面积占掉面板三分之一，雾蓝灰那套就是一大块砖红，
+   她一眼读成「棕色」。主色该做的是「一条、一颗、一格」，不是铺半张纸。
+   托盘改回底色本身（只是比面板底压深 4%，用来托住八张小卡）。 */
 #gg-settings .gg-themes {
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
     padding: 0 12px 12px;
     border-radius: 0 0 10px 10px;
-    background: var(--gg-deep);
+    background: color-mix(in srgb, var(--gg-base) 96%, #1e1a18 4%);
 }
 
 #gg-settings .gg-theme {
@@ -958,9 +961,12 @@ body.gg-theme-lotus,
     transition: left 0.18s ease, background 0.18s ease;
 }
 
+/* 选中态用压暗 18% 的主色（--gg-primary-ink），不是原色。
+   原色铺在 34×19 的小胶囊上，八行连起来就是一条糖色带 —— 她看到的就是「浑身棕」。
+   压暗之后是同一个色相的沉静版，面积一样但不再跳。 */
 #gg-settings .gg-check input[type="checkbox"]:checked {
-    background: var(--gg-deep) !important;
-    border-color: color-mix(in srgb, var(--gg-deep) 78%, #1e1a18) !important;
+    background: var(--gg-primary-ink) !important;
+    border-color: color-mix(in srgb, var(--gg-primary-ink) 84%, #1e1a18) !important;
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked::after {
@@ -1431,13 +1437,13 @@ body.gg-theme-lotus,
     max-height: min(86dvh, 820px);
     border-radius: 16px;
     color: var(--gg-text);
-    /* 底板：纯底色 + 白/黑只调明度，主色一点不掺。
-       玻璃那层 blur 会把酒馆背景采样进来染色，所以饱和度压到 1.02。 */
+    /* 底板：纯底色，几乎不提亮 —— 提亮了雾蓝灰就变成「带点蓝的白」，
+       色卡上那块 #e1e6e9 的蓝灰感全没了。只用 3% 黑压个下缘做体积。 */
     background:
         linear-gradient(170deg,
-            color-mix(in srgb, var(--gg-base) 96%, #fffdf8) 0%,
-            var(--gg-base) 52%,
-            color-mix(in srgb, var(--gg-base) 93%, #1e1a18 7%) 100%);
+            var(--gg-base) 0%,
+            var(--gg-base) 62%,
+            color-mix(in srgb, var(--gg-base) 97%, #1e1a18 3%) 100%);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.88),
         inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
