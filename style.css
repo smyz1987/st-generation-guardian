@@ -1492,3 +1492,84 @@ body.gg-theme-lotus,
         padding: 0 8px calc(10px + env(safe-area-inset-bottom));
     }
 }
+
+
+/* ---------- 引导：聚光灯（不是全屏说明书） ---------- */
+
+/* 她原话：「你的新手引导应该是面板出现后，依次分步照亮讲解处来引导。
+   而不是面板都不出来讲说明书一样。」
+   所以 #gg-guide 自己不再铺一层黑：黑是 #gg-guide-spot 的四边外阴影给的，
+   洞口贴着当前这一块，气泡挂在它上下。 */
+#gg-guide {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    display: block;
+    padding: 0;
+    background: none;
+    pointer-events: none;
+}
+
+#gg-guide.gg-hidden {
+    display: none;
+}
+
+#gg-guide-spot {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 1;
+    box-shadow:
+        0 0 0 9999px rgba(12, 14, 18, 0.52),
+        0 0 0 1.5px color-mix(in srgb, var(--gg-accent) 74%, transparent),
+        0 0 22px color-mix(in srgb, var(--gg-accent) 34%, transparent);
+    transition: top 0.16s ease, left 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #gg-guide-spot {
+        transition: none;
+    }
+}
+
+#gg-guide .gg-guide-card {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(372px, 88vw);
+    max-height: 46dvh;
+    z-index: 2;
+    pointer-events: auto;
+    border-radius: 14px;
+    animation: gg-bubble-in 0.16s ease;
+}
+
+@keyframes gg-bubble-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ---------- 扩展页里那条入口 ---------- */
+
+/* 面板被推进弹窗时，扩展页那一块会暂时空着 —— 她说不许把入口删掉，
+   所以永远留一行，点它就能把面板叫回来。 */
+.gg-ext-entry {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.gg-ext-entry .gg-btn {
+    width: 100%;
+}
+
+@media (max-width: 700px) {
+    #gg-guide .gg-guide-card {
+        width: calc(100vw - 24px);
+        max-height: 40dvh;
+    }
+}

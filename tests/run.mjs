@@ -1664,7 +1664,12 @@ async function scenarioGuide() {
 
     const guide = document.getElementById('gg-guide');
     ok('第一次进来会自己弹一遍', Boolean(guide) && !guide.classList.contains('gg-hidden'));
-    eq('第一步是「它管什么」', document.getElementById('gg-guide-title')?.textContent?.trim(), '它管什么');
+    eq('第一步照亮主题那一行', document.getElementById('gg-guide-title')?.textContent?.trim(), '主题');
+    // jsdom 没有排版，量不出像素；这里只核高亮框存在，以及七个照亮目标都在面板里
+    ok('有一个高亮框（挖洞靠它的外阴影）', Boolean(document.getElementById('gg-guide-spot')));
+    ok('七个照亮目标都是面板里真实的一块',
+        ['#gg-theme-fold', '#gg-switch-fold', '#gg-prompt-fold', '#gg-storage-fold', '#gg-compat-fold', '#gg-snap-fold', '#gg-help']
+            .every((sel) => Boolean(document.querySelector(sel))));
     eq('步数标着 1 / 7', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
     eq('底部七颗进度点', document.querySelectorAll('#gg-guide-dots .gg-guide-dot').length, 7);
     ok('第一步的上一步是灰的', Boolean(document.getElementById('gg-guide-prev')?.disabled));
@@ -1672,7 +1677,7 @@ async function scenarioGuide() {
     const next = document.getElementById('gg-guide-next');
     next.click();
     eq('点下一步走到第 2 步', document.getElementById('gg-guide-step')?.textContent?.trim(), '2 / 7');
-    eq('第二步讲主题', document.getElementById('gg-guide-title')?.textContent?.trim(), '主题');
+    eq('第二步照亮开关那一块', document.getElementById('gg-guide-title')?.textContent?.trim(), '开关');
 
     for (let i = 0; i < 5; i += 1) {
         next.click();
@@ -1695,9 +1700,11 @@ async function scenarioGuide() {
     ok('点「?」又出来了', !document.getElementById('gg-guide').classList.contains('gg-hidden'));
     eq('而且是从第一步重来', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
 
-    // 点遮罩空白处关掉
-    document.getElementById('gg-guide').click();
-    ok('点遮罩也能关', document.getElementById('gg-guide').classList.contains('gg-hidden'));
+    // 聚光灯式：不再铺一整块黑遮罩，改成高亮框 + 气泡；右上角 ✕ 就是「跳过」
+    ok('引导现在是高亮框 + 气泡，不是全屏说明书',
+        Boolean(document.getElementById('gg-guide-spot')) && Boolean(document.getElementById('gg-guide-card')));
+    document.getElementById('gg-guide-close').click();
+    ok('点跳过就收起', document.getElementById('gg-guide').classList.contains('gg-hidden'));
 
     // 面板上的名字要短，解释都在引导里
     const labels = [...document.querySelectorAll('#gg-switch-fold .gg-check span')].map((node) => node.textContent.trim());

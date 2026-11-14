@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.16';
+const VERSION = '1.3.17';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1231,6 +1231,35 @@ function closeWandMenu() {
  */
 let sheetHome = null;
 
+/**
+ * 扩展页里那条常驻入口。
+ * 面板被推进弹窗时，扩展页那一块会暂时空着 —— 她说不许把入口删掉，
+ * 所以这里永远留一行「生成守护 · 打开面板」，面板搬回来时它自己让位。
+ */
+function mountExtEntry(host) {
+    let entry = el('gg-ext-entry');
+    if (!entry) {
+        entry = document.createElement('div');
+        entry.id = 'gg-ext-entry';
+        entry.className = 'gg-ext-entry';
+        entry.innerHTML = '<button type="button" class="gg-btn gg-mini" id="gg-ext-open">生成守护 · 打开面板</button>';
+        host.appendChild(entry);
+        el('gg-ext-open')?.addEventListener('click', () => openPanelModal());
+    }
+    return entry;
+}
+
+/** 面板在扩展页的时候把入口行藏起来，搬走了再露出来 */
+function syncExtEntry() {
+    const entry = el('gg-ext-entry');
+    const root = el('gg-settings');
+    if (!entry) {
+        return;
+    }
+    const inModal = Boolean(root?.classList?.contains('gg-in-modal'));
+    entry.style.display = inModal ? '' : 'none';
+}
+
 function ensureModal() {
     let modal = el('gg-modal');
     if (modal) {
@@ -1262,20 +1291,28 @@ function ensureModal() {
 function openPanelModal(retry = 0) {
     closeWandMenu();
     const modal = ensureModal();
+    let root = el('gg-settings');
+    if (!root) {
+        // 面板还没建过就当场建一个 —— 手机端最容易卡在这，
+        // 表现就是「点魔杖里那一条什么都没发生」。
+        mountSettings();
+        root = el('gg-settings');
+    }
     const body = el('gg-modal-body');
-    const root = el('gg-settings');
     if (!root || !body) {
-        // 扩展容器可能还没渲染出来，等一下再来（最多约 1.2 秒）
-        if (retry < 5) {
-            setTimeout(() => openPanelModal(retry + 1), 240);
+        if (retry < 6) {
+            setTimeout(() => openPanelModal(retry + 1), 200);
         }
         return;
     }
     if (root.parentElement !== body) {
-        sheetHome = root.parentElement;
+        if (root.parentElement && !root.classList.contains('gg-in-modal')) {
+            sheetHome = root.parentElement;
+        }
         body.appendChild(root);
         root.classList.add('gg-in-modal');
     }
+    syncExtEntry();
     modal.classList.remove('gg-hidden');
 
     // 第一次打开面板就顺手把引导走到，不让她自己去猜
@@ -1286,16 +1323,23 @@ function openPanelModal(retry = 0) {
 
 function closePanelModal() {
     const modal = el('gg-modal');
-    modal?.classList.add('gg-hidden');
+    if (!modal || modal.classList.contains('gg-hidden')) {
+        return;
+    }
+    modal.classList.add('gg-hidden');
     const root = el('gg-settings');
     if (!root) {
         return;
     }
     root.classList.remove('gg-in-modal');
-    const home = sheetHome && document.contains(sheetHome) ? sheetHome : el('extensions_settings2');
+    // 面板是从扩展页搬来的就搬回去；本来就是建在弹窗里的就别动
+    const home = sheetHome && document.contains(sheetHome) && !sheetHome.closest?.('#gg-modal')
+        ? sheetHome
+        : null;
     if (home && root.parentElement !== home) {
         home.appendChild(root);
     }
+    syncExtEntry();
 }
 
 /** 老名字保留：/gg、脚本按钮、window.GenerationGuardian.openSettings 都还走这里 */
@@ -1428,46 +1472,46 @@ function ensureUI() {
 /* ------------------------------------------------------------------ *
  * 新手引导
  *
- * 设置项的名字都很短，解释全搬到这儿来 —— 面板上不该再堆一排括号说明。
- * 第一次用自动带一遍，之后想重看就点面板最下面那行的「?」。
+ * 她的原话：「你的新手引导应该是面板出现后，依次分步照亮讲解处来引导。
+ * 而不是面板都不出来讲说明书一样。」
+ * 所以这里不是一张全屏说明书：遮罩只在当前这一块上挖个洞，旁边挂一个小气泡。
  * ------------------------------------------------------------------ */
 
 const GUIDE_STEPS = [
     {
-        title: '它管什么',
-        body: `流式回复写到一半被刷新、被别的扩展刷页、被手机杀掉后台 —— 屏幕上已经写出来的字会整段消失，API 额度照扣。
-这个扩展每 0.8 秒把正在写的草稿存进本机，回来帮你接回聊天。`,
+        target: '#gg-theme-fold',
+        tag: '主题',
+        body: '八套配色都在这儿。收起的时候，右边那八颗点就是八套本身 —— 当前那套的点大一点、外面套着同色的环，不展开也知道现在是哪一套。点一下盖子掀开，下面是八张卡。',
     },
     {
-        title: '主题',
-        body: `八套配色。收起那一行右边的八颗点就是八套本身，当前那套的点大一点、外面套着环。
-点那一行，盖子掀开，下面就是八张卡。`,
+        target: '#gg-switch-fold',
+        tag: '开关',
+        body: '整块面板只有这一块默认摊开，因为它是主开关：「启用插件」关掉就什么都不管了。下面七个分别管拦刷新、拦会刷页的扩展操作、被打断自动接回、安静模式、通知状态栏类扩展、魔杖菜单留一条入口、续写后直接发出去。',
     },
     {
-        title: '两个拦截',
-        body: `「拦截刷新和关闭页面」：生成中按 F5、关窗口会被拦一次，问你要不要真刷。
-「拦住会刷新的扩展操作」：生成中禁用 / 删除 / 清理扩展会被拦；更新和换分支不拦，那是你自己点的。`,
+        target: '#gg-prompt-fold',
+        tag: '续写指令',
+        body: '点「续写」时自动填进输入框的那段话。两条预设：主线接着上一轮剧情往下写，番外换成上一个番外。觉得不合适就自己改，改了会记住。',
     },
     {
-        title: '接回的两个开关',
-        body: `「被打断时自动接回」：刷新回来直接把草稿写回聊天，不用你点「接回」。
-「安静模式」：正常写完一个字都不弹，只有真被打断才出声。`,
+        target: '#gg-storage-fold',
+        tag: '存储',
+        body: '草稿最多留几条、留几天、多少秒没新字算卡住。手机上内存紧，条数别开太大。',
     },
     {
-        title: '通知和入口',
-        body: `「通知状态栏类扩展」：接回后广播一次「这条渲染好了」，给自动翻译 / 状态栏 / TTS 用。本扩展不额外发请求。
-「魔杖菜单留一条入口」：它会跟别的扩展按钮一起排在魔法棒里，生成中顺便报「已保存 N 字」。关掉就整条不出现。`,
+        target: '#gg-compat-fold',
+        tag: '兼容状态',
+        body: '列出你酒馆里那几个会自己刷页的扩展 —— 柏宝箱、Horae、Self-Check、酒馆助手这些。标题右边那个数字是命中几个；它们动手刷新之前，我们先把草稿钉进存储。',
     },
     {
-        title: '续写和存储',
-        body: `「续写后直接发送」关着的时候，点「续写」只把指令放进输入框，你可以先补两句再按发送。
-存储那一块管：留几条草稿、留几天、多少秒没新字算卡住。`,
+        target: '#gg-snap-fold',
+        tag: '已保存草稿',
+        body: '被打断过的草稿都在这里，按时间倒序。可以逐条接回，也可以一键清空。正常写完的那一次不会留残留。',
     },
     {
-        title: '兼容状态和草稿',
-        body: `「兼容状态」列出会自己刷页的扩展，数字是命中几个 —— 它们刷新前我们先把草稿钉进存储。
-「已保存草稿」按时间倒序，可以逐条接回，也可以一键清空。
-想重看这份引导，就点面板最下面那行的「?」。`,
+        target: '#gg-help',
+        tag: '重看',
+        body: '就是这个小问号。以后想再看一遍这一套，点它就从第一步重来。',
     },
 ];
 
@@ -1504,12 +1548,13 @@ function ensureGuide() {
     wrap.id = 'gg-guide';
     wrap.className = 'gg-guide gg-hidden';
     wrap.innerHTML = `
-        <div class="gg-guide-card" role="dialog" aria-modal="true" aria-labelledby="gg-guide-title">
+        <div class="gg-guide-spot" id="gg-guide-spot" aria-hidden="true"></div>
+        <div class="gg-guide-card" id="gg-guide-card" role="dialog" aria-modal="false" aria-labelledby="gg-guide-title">
             <div class="gg-guide-head">
                 <span class="gg-guide-tag">新手引导</span>
                 <span class="gg-guide-title" id="gg-guide-title"></span>
                 <span class="gg-guide-step" id="gg-guide-step"></span>
-                <button type="button" class="gg-icon-btn" id="gg-guide-close" title="关掉"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="gg-icon-btn" id="gg-guide-close" title="跳过"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="gg-guide-body" id="gg-guide-body"></div>
             <div class="gg-guide-foot">
@@ -1535,19 +1580,63 @@ function ensureGuide() {
         guideIndex += 1;
         renderGuide();
     });
-    wrap.addEventListener('click', (event) => {
-        if (event.target === wrap) {
-            closeGuide();
+    // 面板自己会滚，窗口也会转 —— 高亮框得跟着走
+    const relite = () => {
+        if (!el('gg-guide')?.classList.contains('gg-hidden')) {
+            placeSpotlight(GUIDE_STEPS[guideIndex]?.target);
         }
-    });
-    renderGuide();
+    };
+    el('gg-modal-body')?.addEventListener('scroll', relite, { passive: true });
+    window.addEventListener('resize', relite);
+    window.addEventListener('orientationchange', relite);
+}
+
+/**
+ * 把当前这一块照亮：高亮框贴着它，四周靠一层巨大的外阴影压暗。
+ * 框和气泡都是 fixed 定位，所以面板滚动、窗口尺寸变化时要重新放一次。
+ */
+function placeSpotlight(selector) {
+    const spot = el('gg-guide-spot');
+    const card = el('gg-guide-card');
+    if (!spot || !card) {
+        return;
+    }
+    const target = selector ? document.querySelector(selector) : null;
+    if (!target) {
+        spot.style.display = 'none';
+        card.dataset.anchored = '0';
+        return;
+    }
+    const rect = target.getBoundingClientRect();
+    if (!rect || rect.width < 1 || rect.height < 1) {
+        spot.style.display = 'none';
+        card.dataset.anchored = '0';
+        return;
+    }
+    const pad = 6;
+    spot.style.display = '';
+    spot.style.top = `${Math.round(rect.top - pad)}px`;
+    spot.style.left = `${Math.round(rect.left - pad)}px`;
+    spot.style.width = `${Math.round(rect.width + pad * 2)}px`;
+    spot.style.height = `${Math.round(rect.height + pad * 2)}px`;
+
+    // 气泡优先贴在下面，下面放不下就翻到上面
+    const gap = 12;
+    const cardH = card.offsetHeight || 150;
+    const vh = window.innerHeight || 800;
+    let top = rect.bottom + gap;
+    if (top + cardH > vh - 10) {
+        top = Math.max(10, rect.top - cardH - gap);
+    }
+    card.dataset.anchored = '1';
+    card.style.top = `${Math.round(top)}px`;
 }
 
 function renderGuide() {
     const step = GUIDE_STEPS[guideIndex] || GUIDE_STEPS[0];
     const title = el('gg-guide-title');
     if (title) {
-        title.textContent = step.title;
+        title.textContent = step.tag || '';
     }
     const counter = el('gg-guide-step');
     if (counter) {
@@ -1584,13 +1673,18 @@ function renderGuide() {
     if (next) {
         next.textContent = guideIndex >= GUIDE_STEPS.length - 1 ? '开始用' : '下一步';
     }
+    placeSpotlight(step.target);
 }
 
 function openGuide() {
     ensureGuide();
     guideIndex = 0;
-    renderGuide();
     el('gg-guide')?.classList.remove('gg-hidden');
+    renderGuide();
+    // 刚显示出来时还没排版，等一帧再量位置
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => placeSpotlight(GUIDE_STEPS[guideIndex]?.target));
+    }
 }
 
 function closeGuide() {
@@ -2228,7 +2322,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.16</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.17</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
@@ -2410,13 +2504,16 @@ async function renderCompatSection() {
 }
 
 function mountSettings(retry = 0) {
-    const host = el('extensions_settings2') || el('extensions_settings');
     if (el('gg-settings')) {
+        bindHelpButton();
         return;
     }
-    // 本扩展的 loading_order 很靠前，扩展面板容器可能还没渲染出来；
-    // 容器缺席时不能就此放弃，隔一小段时间再挂一次，最多试 12 次（约 3.6 秒）。
-    if (!host) {
+    // 面板不能等着扩展容器才出现：手机端那个容器可能根本没渲染出来，
+    // 结果就是魔杖里点一下「什么都没发生」。所以先自建弹窗，面板总有个家。
+    ensureModal();
+    const host = el('extensions_settings2') || el('extensions_settings');
+    const container = host || el('gg-modal-body');
+    if (!container) {
         if (retry < 12) {
             setTimeout(() => mountSettings(retry + 1), 300);
         }
@@ -2424,9 +2521,12 @@ function mountSettings(retry = 0) {
     }
     const wrapper = document.createElement('div');
     wrapper.id = 'gg-settings';
-    wrapper.className = 'inline-drawer';
+    wrapper.className = host ? 'inline-drawer' : 'gg-standalone';
     wrapper.innerHTML = SETTINGS_HTML;
-    host.appendChild(wrapper);
+    container.appendChild(wrapper);
+    if (host) {
+        mountExtEntry(host);
+    }
 
     const s = settings();
     el('gg-set-enabled').checked = Boolean(s.enabled);
@@ -2444,6 +2544,7 @@ function mountSettings(retry = 0) {
     el('gg-ver').textContent = VERSION;
     bindHelpButton();
     renderCompatSection();
+    syncExtEntry();
 
     /* 收起那一行里的小巧思：八颗点就是八套配色本身，横着排成一条调色盘；
        当前那套的点长出一圈同色环并放大一点 —— 不展开也知道现在是哪一套。 */
