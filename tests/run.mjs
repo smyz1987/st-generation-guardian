@@ -142,7 +142,10 @@ function defineGlobal(name, value) {
 function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="chat"></div>
-        <textarea id="send_textarea"></textarea>
+        <div id="send_form">
+            <div id="qr--bar" class="flex-container flexGap5"><div class="qr--buttons"></div></div>
+            <textarea id="send_textarea"></textarea>
+        </div>
         <div id="extensions_settings2"></div>
         <div id="continue_button"></div>
     </body></html>`, { url: 'http://localhost:8000/' });
@@ -154,6 +157,7 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
     defineGlobal('Event', window.Event);
     defineGlobal('HTMLElement', window.HTMLElement);
     defineGlobal('localStorage', storage);
+    defineGlobal('MutationObserver', window.MutationObserver);
     defineGlobal('toastr', {
         info: (m) => console.log(`    [toast:info] ${m}`),
         success: (m) => console.log(`    [toast:success] ${m}`),
@@ -276,7 +280,9 @@ async function scenarioReloadAndResume() {
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
     const b1 = document.getElementById('gg-badge');
-    ok('生成开始后出现状态徽标', b1 && !b1.classList.contains('gg-hidden'));
+    ok('生成开始后出现状态条', b1 && !b1.classList.contains('gg-hidden'));
+    ok('状态条挂在 QR 快捷栏里，不在聊天框上方',
+        Boolean(b1 && b1.closest('#qr--bar')), b1?.parentElement?.id || '(无父容器)');
 
     // 模拟 beforeunload：生成中应该被拦下
     const unload = new ctx.__window.Event('beforeunload', { cancelable: true });
@@ -350,7 +356,9 @@ async function scenarioNormalCompletionKeepsNothing() {
 
     eq('正常完成后不残留草稿', readSnapshots().length, 0);
     ok('正常完成后不弹恢复卡片', !panelVisible());
-    ok('徽标收起', document.getElementById('gg-badge').classList.contains('gg-hidden'));
+    ok('状态条回到入口名，不再报字数',
+        document.getElementById('gg-badge')?.textContent?.trim() === '生成守护',
+        document.getElementById('gg-badge')?.textContent || '');
 
     const unloadAfter = new ctx.__window.Event('beforeunload', { cancelable: true });
     ctx.__window.dispatchEvent(unloadAfter);
@@ -1145,11 +1153,14 @@ async function scenarioReloadShield() {
     const generateCalls = sent.filter((url) => url.includes('/api/backends/chat-completions/generate'));
     eq('正常生成请求照常放行', generateCalls.length, 1);
 
-    // 7) 生成结束 → 删除按钮放行
+    // 7) 生成结束：字还在屏幕上、酒馆还没 saveChat —— 这段窗口刷新照样会整段丢，
+    //    所以这里先把保护窗口压到 0，只验证「该放开的时候确实放开」，不误拦正常操作。
+    globalThis.__ggPostGenGuardMs = 0;
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});
     const afterStop = new window.MouseEvent('click', { bubbles: true, cancelable: true });
     deleteBtn.dispatchEvent(afterStop);
-    ok('生成结束就不再拦了', !afterStop.defaultPrevented);
+    ok('生成结束、保护窗口过去之后就不再拦了', !afterStop.defaultPrevented);
+    delete globalThis.__ggPostGenGuardMs;
 
     delete extensionSettingsStub['generation-guardian'];
     delete extensionSettingsStub['extension_hot_reload'];
@@ -1453,6 +1464,100 @@ async function scenarioFillOnlyByDefault() {
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }
 
+/* 27：生成刚写完、酒馆还没 saveChat 的这几秒，刷新照样整段丢。
+   酒馆的流式是「开头落一条空消息 → 中途只改内存里的 chat[i].mes → 跑完 GENERATION_ENDED
+   之后才 saveChat」，所以事件刚发出来那一刻磁盘上还是空的。这段窗口必须继续拦。 */
+async function scenarioPostFinishGuard() {
+    console.log('\n[27] 生成刚结束、还没写盘时，刷新和扩展操作照样拦');
+    captureConsole();
+    storage.clear();
+    const chat = makeChat();
+    const ctx = await createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx);
+    extensionSettingsStub['generation-guardian'] = {
+        autoRestore: false,
+        blockReload: true,
+        blockExtensionOps: true,
+    };
+
+    // (a) 真实 12 秒窗口：刚 STOPPED 就点刷新 → 拦
+    const text = '他把伞往她那边偏了偏，雨顺着伞骨滑下去。';
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, text);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});
+
+    const unloadNow = new window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unloadNow);
+    ok('刚写完还没落盘时，刷新被拦下', unloadNow.defaultPrevented);
+    ok('拦的时候说的是「刚写完还没存进聊天」，不是「正在生成中」',
+        String(window.GenerationGuardian?.unloadMessage?.(false) || '').includes('正在存进聊天'),
+        String(window.GenerationGuardian?.unloadMessage?.(false) || ''));
+    ok('生成中的说法仍然是「正在生成中」',
+        String(window.GenerationGuardian?.unloadMessage?.(true) || '').includes('正在生成中'));
+
+    // 这会儿点「禁用扩展」也会立刻刷新 → 同样要拦
+    const info = document.createElement('div');
+    info.className = 'extensions_info';
+    info.innerHTML = '<div class="extension_block"><button class="toggle_disable" type="button">禁用</button></div>';
+    document.body.appendChild(info);
+    const disableEvent = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    info.querySelector('.toggle_disable').dispatchEvent(disableEvent);
+    ok('落盘保护窗口内点「禁用扩展」也被拦下', disableEvent.defaultPrevented);
+    info.remove();
+
+    // (b) 窗口到期就放开，不误拦正常操作
+    globalThis.__ggPostGenGuardMs = 60;
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, text);
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STOPPED, {});
+    const unloadDuring = new window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unloadDuring);
+    ok('窗口内的第二次生成结束后，刷新仍然被拦', unloadDuring.defaultPrevented);
+    await sleep(260);
+    const unloadAfter = new window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unloadAfter);
+    ok('保护窗口到点自动解除，不会一直缠着不让刷新', !unloadAfter.defaultPrevented);
+    delete globalThis.__ggPostGenGuardMs;
+
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+    pagehide(ctx);
+}
+
+/* 28：入口只在 QR 快捷栏里。她明确说过「聊天框上面挂图标没必要」，
+   所以栏在就挂进去、栏不在就彻底不出现，绝不退回 body 上浮着。 */
+async function scenarioQuickBarPlacement() {
+    console.log('\n[28] 入口只在 QR 快捷栏里，栏没了就彻底不出现');
+    captureConsole();
+    storage.clear();
+    const ctx = createWorld({ chat: makeChat() });
+    await bootExtension();
+    await signalReady(ctx);
+
+    const badge = document.getElementById('gg-badge');
+    ok('启动后快捷栏里就有「生成守护」这一条', Boolean(badge && badge.closest('#qr--bar')),
+        badge?.parentElement?.className || '(无父容器)');
+    eq('平时文案就是入口名', badge?.textContent?.trim(), '生成守护');
+    ok('点它不会报错（酒馆原生抽屉会自己接住这个 click）', (() => {
+        try {
+            badge.click();
+            return true;
+        } catch (error) {
+            return false;
+        }
+    })());
+
+    // 她关掉 QR → 栏被拆掉 → 我们的图标也跟着走人
+    document.getElementById('qr--bar').remove();
+    await sleep(220);
+    ok('QR 栏没了，页面上也不再有我们的图标', !document.getElementById('gg-badge'));
+    ok('恢复卡片仍然可用（只收入口，不动功能）', Boolean(document.getElementById('gg-panel')));
+
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1483,6 +1588,8 @@ async function main() {
     await scenarioSwipeLanded();
     await scenarioEmptyPlaceholder();
     await scenarioFillOnlyByDefault();
+    await scenarioPostFinishGuard();
+    await scenarioQuickBarPlacement();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

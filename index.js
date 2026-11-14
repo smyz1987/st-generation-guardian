@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.12';
+const VERSION = '1.3.13';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -29,6 +29,11 @@ const FLUSH_INTERVAL_MS = 800;
 // 生成中超过这么久没有任何新 token，就认为这次生成其实已经死了，
 // 自动把「生成中」状态解开 —— 否则会一直拦着扩展操作、一直拦刷新，反而变成干扰。
 const GENERATION_STALE_MS = 5 * 60 * 1000;
+// 生成刚结束的那一小段「还在写盘」的时间，刷新照样要拦。
+// 酒馆的流式是：开头 saveReply 先落一条空消息，中途只改内存里的 chat[i].mes 不落盘，
+// 等流跑完 GENERATION_ENDED 之后才 saveChat。也就是说事件刚发出来那一刻，
+// 字全在屏幕上、一个字都还没进磁盘 —— 这个窗口刷新必丢。留 12 秒肯定够 saveChat 走完。
+const POST_GEN_GUARD_MS = 12 * 1000;
 
 /* 八套主题。每套就是「一个极浅的中性底 + 一个中低饱和的彩色中间调」，
    色号逐字取自用户那份网页配色的八组：底在浅色一支，其余角色都从这两支派生。
@@ -534,7 +539,7 @@ function releaseGeneration() {
     generating = false;
     buffer = null;
     clearStallWatch();
-    disarmUnloadGuard();
+    settlePostGenerationGuard();
     updateBadge('');
 }
 
@@ -544,12 +549,14 @@ function updateBadge(text) {
     if (!badge || !label) {
         return;
     }
-    if (!settings().enabled || !activelyGenerating() || !settings().showBadge) {
+    if (!settings().enabled || !settings().showBadge) {
         badge.classList.add('gg-hidden');
         return;
     }
+    // 这一块现在是 QR 快捷栏里的一条常驻入口：平时就是「生成守护」四个字，
+    // 生成中借它报「已保存 N 字 · 别刷新」，点一下都跳到设置面板。
     badge.classList.remove('gg-hidden');
-    label.textContent = text;
+    label.textContent = text || '生成守护';
 }
 
 let pendingSnapshot = null;
@@ -717,7 +724,9 @@ function flushNow() {
 
 function onGenerationFinished(reason) {
     generating = false;
-    disarmUnloadGuard();
+    // 这里故意不 disarm：GENERATION_ENDED 是同步 emit 的，那一刻字全在屏幕上，
+    // 但酒馆要等随后的 saveChat 才写盘。这段窗口刷新就是整段蒸发，绝不能放开。
+    // 什么时候放开由 holdPostGenerationGuard / settlePostGenerationGuard 决定。
     clearStallWatch();
     updateBadge('');
     if (flushTimer) {
@@ -728,12 +737,15 @@ function onGenerationFinished(reason) {
     const snapshot = buffer;
     buffer = null;
     if (!snapshot) {
+        // 手动停止会先 STOPPED 再 ENDED，第二次进来时草稿已经被第一次处理过，
+        // 保护窗口也已经设好了，这里什么都不动，别把它提前拆掉。
         return;
     }
 
     const text = String(snapshot.text || '');
     if (!text.trim()) {
         removeSnapshot(snapshot.id);
+        settlePostGenerationGuard();
         return;
     }
 
@@ -741,8 +753,12 @@ function onGenerationFinished(reason) {
     // 这里判定一律保守：拿不准就留着，交给后面的复核处理。
     if (chatDraftLanded(snapshot)) {
         removeSnapshot(snapshot.id);
+        settlePostGenerationGuard();
         return;
     }
+
+    // 还没落地：撑起落盘保护窗口，等复核确认写进聊天了再放开
+    holdPostGenerationGuard();
 
     // 酒馆把这条消息塞进 ctx.chat 往往比 GENERATION_ENDED 晚半拍（真机实测过），
     // 所以这里不当场喊「没写进聊天」——只先记下来，隔几秒复核几次。
@@ -776,6 +792,8 @@ function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
         try {
             if (chatDraftLanded(snapshot)) {
                 removeSnapshot(snapshot.id);
+                // 确认已经写进聊天了，落盘保护可以撤了，别让她干等
+                settlePostGenerationGuard();
                 return;
             }
             scheduleLandedRecheck(snapshot, reason, attempt + 1);
@@ -815,9 +833,26 @@ function settleFinishedSnapshot(snapshot, reason) {
  * ------------------------------------------------------------------ */
 
 let unloadGuardArmed = false;
+// 生成刚结束、字还在屏幕上但酒馆还没 saveChat 的那段保护窗口
+let postGenGuardUntil = 0;
+let postGenGuardTimer = null;
+
+/** 现在刷新会不会丢字：要么正在吐字，要么刚写完、还在往聊天里存 */
+function reloadWouldLoseText() {
+    return activelyGenerating() || Date.now() < postGenGuardUntil;
+}
+
+/** 两种痛点的说法分开：正在写 vs 写完了还没存进聊天 */
+function unloadMessage(live) {
+    return live
+        ? '正在生成中，刷新会中断回复。草稿已保存，确定要刷新吗？'
+        : '这段回复刚写完、正在存进聊天，现在刷新可能整段丢。确定要刷新吗？';
+}
 
 function unloadGuard(event) {
-    if (!activelyGenerating()) {
+    const live = activelyGenerating();
+    const writing = !live && Date.now() < postGenGuardUntil;
+    if (!live && !writing) {
         return;
     }
     try {
@@ -826,8 +861,41 @@ function unloadGuard(event) {
         console.warn(TAG, error);
     }
     event.preventDefault();
-    event.returnValue = '正在生成中，刷新会中断回复。草稿已保存，确定要刷新吗？';
+    event.returnValue = unloadMessage(live);
     return event.returnValue;
+}
+
+/** 落盘保护窗口的长度：测试里可以把它压到 0，真机上永远是 POST_GEN_GUARD_MS */
+function postGenGuardMs() {
+    const custom = globalThis.__ggPostGenGuardMs;
+    return Number.isFinite(custom) && custom >= 0 ? Number(custom) : POST_GEN_GUARD_MS;
+}
+
+/** 生成结束但字还没落盘：这段时间照拦，别让扩展的自动刷新把刚写完的字冲掉 */
+function holdPostGenerationGuard() {
+    if (!settings().blockReload) {
+        return;
+    }
+    const hold = postGenGuardMs();
+    postGenGuardUntil = Date.now() + hold;
+    armUnloadGuard();
+    if (postGenGuardTimer) {
+        clearTimeout(postGenGuardTimer);
+    }
+    postGenGuardTimer = setTimeout(() => {
+        postGenGuardTimer = null;
+        settlePostGenerationGuard();
+    }, hold);
+}
+
+/** 确认落盘了（或压根没内容）：立刻放开，不用干等 12 秒 */
+function settlePostGenerationGuard() {
+    postGenGuardUntil = 0;
+    if (postGenGuardTimer) {
+        clearTimeout(postGenGuardTimer);
+        postGenGuardTimer = null;
+    }
+    disarmUnloadGuard();
 }
 
 function armUnloadGuard() {
@@ -867,7 +935,7 @@ const CLICK_BLOCK_SELECTOR = [
 ].join(', ');
 
 function guardReloadProneClick(event) {
-    if (!activelyGenerating() || !settings().enabled || !settings().blockReload || !settings().blockExtensionOps) {
+    if (!settings().enabled || !settings().blockReload || !settings().blockExtensionOps || !reloadWouldLoseText()) {
         return;
     }
     const target = event.target;
@@ -894,8 +962,8 @@ function guardReloadProneClick(event) {
         console.warn(TAG, error);
     }
     toast(isRemoval
-        ? '正在生成中，删除 / 清理扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）'
-        : '正在生成中，启用 / 禁用扩展会立刻刷新页面 —— 等这条写完再动（按住 Shift 点可以强制放行）', 'warning');
+        ? `这条${activelyGenerating() ? '正在写' : '刚写完还没存进聊天'}，删除 / 清理扩展会立刻刷新页面 —— 等一下再动（按住 Shift 点可以强制放行）`
+        : `这条${activelyGenerating() ? '正在写' : '刚写完还没存进聊天'}，启用 / 禁用扩展会立刻刷新页面 —— 等一下再动（按住 Shift 点可以强制放行）`, 'warning');
 }
 
 /* 扩展自己的「更新」确认弹窗：点了以后它们自己会 setTimeout 刷新（实测本机
@@ -913,7 +981,7 @@ const UPDATE_BUTTON_TEXTS = ['更新', '立即更新', '现在更新', '马上�
 const AUTO_RELOAD_HINT = /自动刷新|刷新页面|reload the page|will reload/i;
 
 function guardExtensionUpdateClick(event) {
-    if (!activelyGenerating() || !settings().enabled || !settings().blockReload) {
+    if (!settings().enabled || !settings().blockReload || !reloadWouldLoseText()) {
         return;
     }
     const target = event.target;
@@ -953,7 +1021,7 @@ function guardExtensionUpdateClick(event) {
     } catch (error) {
         console.warn(TAG, error);
     }
-    toast('正在生成中，更新完它不到一秒就会把页面刷掉 —— 等这条写完再更新（按住 Shift 点可以强制放行）', 'warning');
+    toast(`这条${activelyGenerating() ? '正在写' : '刚写完还没存进聊天'}，更新完它不到一秒就会把页面刷掉 —— 等一下再更新（按住 Shift 点可以强制放行）`, 'warning');
 }
 
 /* ------------------------------------------------------------------ *
@@ -1078,16 +1146,136 @@ async function undoAutoRestore() {
     toast('已撤销补回，草稿还在「已保存草稿」里', 'info');
 }
 
-function ensureUI() {
-    if (el('gg-badge')) {
+/**
+ * 快捷栏宿主。她要求「不要在聊天框上方挂图标」，
+ * 所以生成中的状态提示只活在 QR 快捷栏里（酒馆原生 #qr--bar，或酒馆助手自己建的那条），
+ * 栏不存在就干脆不出现 —— 绝不退回 body 上浮着。
+ * 结构参考酒馆助手 panel/script/use_button_destination_element.ts：
+ * isCombined 时挂到 #qr--bar 里的 .qr--buttons，否则就挂 #qr--bar 本身。
+ */
+function quickBarHost() {
+    const sendForm = document.getElementById('send_form');
+    if (!sendForm) {
+        return null;
+    }
+    const bar = Array.from(sendForm.querySelectorAll('div')).find((node) => node.id === 'qr--bar');
+    if (!bar) {
+        return null;
+    }
+    let combined = false;
+    try {
+        combined = Boolean(getContext()?.extensionSettings?.quickReplyV2?.isCombined);
+    } catch (error) {
+        combined = false;
+    }
+    if (!combined) {
+        return bar;
+    }
+    let buttons = bar.querySelector('.qr--buttons');
+    if (!buttons) {
+        buttons = document.createElement('div');
+        buttons.className = 'qr--buttons';
+        bar.appendChild(buttons);
+    }
+    return buttons;
+}
+
+/** 把徽标归位到快捷栏；没有快捷栏就收起来 */
+function syncBadge() {
+    const host = quickBarHost();
+    let badge = el('gg-badge');
+    if (!host) {
+        badge?.remove();
         return;
     }
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'gg-badge';
+        badge.className = 'gg-hidden';
+        badge.title = '生成守护';
+        badge.innerHTML = '<span class="gg-dot"></span><span id="gg-badge-text">生成守护</span>';
+        badge.addEventListener('click', () => {
+            openSettingsDrawer();
+        });
+    }
+    if (badge.parentElement !== host) {
+        host.appendChild(badge);
+    }
+    // 常驻：栏里一建好就先亮出「生成守护」，不必等到下一次生成
+    if (!badge.dataset.ggReady) {
+        badge.dataset.ggReady = '1';
+        updateBadge('');
+    }
+}
 
-    const badge = document.createElement('div');
-    badge.id = 'gg-badge';
-    badge.className = 'gg-hidden';
-    badge.innerHTML = '<span class="gg-dot"></span><span id="gg-badge-text">生成守护</span>';
-    document.body.appendChild(badge);
+/** 点快捷栏里的徽标 → 跳回扩展页并把抽屉展开 */
+function openSettingsDrawer() {
+    const root = el('gg-settings');
+    if (!root) {
+        return;
+    }
+    const content = root.querySelector('.inline-drawer-content');
+    if (content && (content.style.display === 'none' || content.style.display === '')) {
+        root.querySelector('.inline-drawer-header')?.click();
+    }
+    root.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+/* QR 栏会被酒馆和酒馆助手反复重建，徽标得跟着重新归位 */
+let quickBarObserver = null;
+let quickBarTimer = null;
+
+function watchQuickBar() {
+    const sendForm = document.getElementById('send_form');
+    if (!sendForm || quickBarObserver || typeof MutationObserver !== 'function') {
+        return;
+    }
+    quickBarObserver = new MutationObserver(() => {
+        if (quickBarTimer) {
+            clearTimeout(quickBarTimer);
+        }
+        quickBarTimer = setTimeout(() => {
+            quickBarTimer = null;
+            syncBadge();
+        }, 120);
+    });
+    quickBarObserver.observe(sendForm, { childList: true, subtree: true });
+}
+
+/**
+ * 注册 /gg —— 她可以在自己的 QR 集合里加一条快捷写 /gg，
+ * 那条快捷就折叠在快捷区里，聊天框上方什么都不用留。
+ */
+function registerSlashCommand() {
+    if (globalThis.__ggSlashRegistered) {
+        return;
+    }
+    try {
+        const ctx = getContext();
+        const parser = ctx?.SlashCommandParser;
+        const SlashCommand = ctx?.SlashCommand;
+        if (!parser?.addCommandObject || !SlashCommand?.fromProps) {
+            return;
+        }
+        parser.addCommandObject(SlashCommand.fromProps({
+            name: 'gg',
+            callback: () => {
+                openSettingsDrawer();
+                return '';
+            },
+            helpString: '打开 Generation Guardian（生成守护）的设置面板。',
+        }));
+        globalThis.__ggSlashRegistered = true;
+    } catch (error) {
+        console.debug(TAG, error);
+    }
+}
+
+function ensureUI() {
+    syncBadge();
+    if (el('gg-panel')) {
+        return;
+    }
 
     const panel = document.createElement('div');
     panel.id = 'gg-panel';
@@ -1702,7 +1890,7 @@ const SETTINGS_HTML = `
         <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>生成中显示「已保存 N 字」徽标</span></label>
+        <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>在 QR 快捷栏里留一条「生成守护」（生成中顺便报「已保存 N 字」，点它打开本面板）</span></label>
         <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」后直接替我发出去（默认关：只把指令放进输入框，你可以先补几句再按发送）</span></label>
 
         <div class="gg-diamond">◆</div>
@@ -1730,7 +1918,7 @@ const SETTINGS_HTML = `
         <div id="gg-snap-list" class="gg-snap-list"></div>
         <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
         <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.12</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">v<span id="gg-ver">1.3.13</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 
@@ -1989,7 +2177,7 @@ function mountSettings(retry = 0) {
             generating = false;
             buffer = null;
             clearStallWatch();
-            disarmUnloadGuard();
+            settlePostGenerationGuard();
             updateBadge('');
             hidePanel();
         }
@@ -1998,8 +2186,8 @@ function mountSettings(retry = 0) {
     el('gg-set-block').addEventListener('change', (event) => {
         s.blockReload = Boolean(event.target.checked);
         if (!s.blockReload) {
-            disarmUnloadGuard();
-        } else if (generating) {
+            settlePostGenerationGuard();
+        } else if (generating || Date.now() < postGenGuardUntil) {
             armUnloadGuard();
         }
         persistSettings();
@@ -2205,6 +2393,8 @@ function initOnce() {
     document.addEventListener('click', guardExtensionUpdateClick, true);
 
     ensureUI();
+    watchQuickBar();
+    registerSlashCommand();
     applyTheme();
     mountSettings();
     // 让刷新/重载后的恢复卡片晚一点出现，等聊天先渲染完
@@ -2217,6 +2407,7 @@ function initOnce() {
         /** 内存里正在写的这条草稿（localStorage 写不进去时的逃生口，复制即可救回） */
         liveDraft: () => (buffer ? String(buffer.text || '') : ''),
         isGenerating: () => activelyGenerating(),
+        unloadMessage: unloadMessage,
         scan: scanForRecoverySafe,
         clear: () => writeAll([]),
         copy: copyText,

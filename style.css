@@ -108,37 +108,42 @@ body.gg-theme-lotus,
     --gg-shadow: color-mix(in srgb, var(--gg-primary) 22%, transparent);
 }
 
-/* ---------- 生成中的徽标 ---------- */
+/* ---------- 快捷栏里的一条（原来的生成中徽标） ---------- */
 
+/* 不再 fixed 挂在聊天框上方。它现在的家是 QR 快捷栏：
+   平时是「生成守护」一条常驻快捷，生成中借它报「已保存 N 字 · 别刷新」。
+   JS 那边只往 #qr--bar（或 .qr--buttons）里 append，栏不在就整个不出现。 */
 #gg-badge {
-    position: fixed;
-    left: 12px;
-    bottom: 88px;
-    z-index: 3000;
+    position: static;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 13px;
-    border-radius: 10px;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 6px;
     font-size: 11.5px;
-    letter-spacing: 0.03em;
-    line-height: 1.3;
-    color: var(--gg-ink);
-    background: var(--gg-deep);
-    border: 0;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.45),
-        inset 0 -1px 0 color-mix(in srgb, #1e1a18 22%, transparent),
-        0 1px 2px rgba(20, 16, 14, 0.1),
-        0 8px 20px color-mix(in srgb, var(--gg-deep) 36%, transparent),
-        0 24px 40px -22px color-mix(in srgb, var(--gg-deep) 40%, transparent);
-    -webkit-backdrop-filter: blur(16px) saturate(1.4);
-    backdrop-filter: blur(16px) saturate(1.4);
-    pointer-events: none;
-    max-width: 62vw;
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+    color: var(--SmartThemeBodyColor, var(--gg-ink));
+    background: color-mix(in srgb, var(--gg-base) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gg-base) 34%, transparent);
+    box-shadow: none;
+    cursor: pointer;
+    max-width: min(260px, 46vw);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+#gg-badge:hover {
+    background: color-mix(in srgb, var(--gg-base) 26%, transparent);
+    border-color: color-mix(in srgb, var(--gg-base) 52%, transparent);
+}
+
+#gg-badge:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gg-base) 70%, transparent);
+    outline-offset: 2px;
 }
 
 #gg-badge .gg-dot {
@@ -409,9 +414,14 @@ body.gg-theme-lotus,
 
 /* ---------- 设置抽屉 ---------- */
 
+/* 入口这一行必须和酒馆扩展列表里其他扩展条目长得一模一样：
+   透明底、无圆角、无阴影、字号和文字色全部继承酒馆。
+   之前这里是一条深色圆角药丸 —— 只要换了全局美化，它就是列表里最扎眼的那块。
+   现在只留一个主题色小方点做识别，其余全部交给酒馆的主题变量。 */
 #gg-settings {
     margin: 10px 0;
-    color: var(--gg-text);
+    color: var(--SmartThemeBodyColor, var(--gg-text));
+    font-family: inherit;
     counter-reset: ggsec;
 }
 
@@ -420,22 +430,22 @@ body.gg-theme-lotus,
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-top: 10px;
-    padding: 9px 12px 9px 13px;
-    border-radius: 10px;
+    margin: 0;
+    padding: 5px 0;
     border: 0;
-    background: color-mix(in srgb, var(--gg-deep) 86%, #1e1a18);
-    box-shadow: inset 1px 1px 0 color-mix(in srgb, #fff 20%, transparent);
-    color: var(--gg-ink);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
 }
 
 #gg-settings .inline-drawer-header b {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: inherit;
     font-weight: 600;
-    letter-spacing: 0.03em;
-    color: var(--gg-ink);
+    letter-spacing: normal;
+    color: inherit;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -453,9 +463,9 @@ body.gg-theme-lotus,
     opacity: 0.85;
 }
 
-/* 抽屉展开的箭标也跟着走 */
+/* 抽屉展开的箭标也跟着走，用酒馆的文字色而不是我们自己的 */
 #gg-settings .inline-drawer-header .inline-drawer-toggle {
-    color: var(--gg-ink);
+    color: inherit;
     opacity: 0.8;
 }
 
