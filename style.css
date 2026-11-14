@@ -88,10 +88,13 @@ body.gg-theme-lotus,
     --gg-surface: color-mix(in srgb, var(--gg-base) 92%, #fffdf8);
     --gg-card: color-mix(in srgb, var(--gg-base) 88%, #fffdf8);
     --gg-hover: color-mix(in srgb, var(--gg-deep) 11%, transparent);
-    /* 正文是中性深墨，不是「主色掺黑」—— 掺黑会变成褐色 */
-    --gg-text: #26221f;
-    --gg-text-2: #3a3531;
-    --gg-muted: #6d6660;
+    /* 正文和结构色一律从**底色本身**压暗出来，跟着底色的冷暖走。
+       之前这里写死 #26221f（一块暖黑），压在雾蓝灰 #e1e6e9 这种冷底上，
+       整屏的字就成了一片棕 —— 她说的「雾蓝灰永远有棕色」有一半是这三行字。
+       现在蓝灰底出冷墨、米色底出暖墨，同一个公式，各走各的色温。 */
+    --gg-text: color-mix(in srgb, var(--gg-base) 16%, #121316);
+    --gg-text-2: color-mix(in srgb, var(--gg-base) 26%, #1b1d20);
+    --gg-muted: color-mix(in srgb, var(--gg-base) 26%, #35383b);
     /* 强调字/标签/图标：主色本身 */
     --gg-primary: var(--gg-deep);
     /* 11px 这种小字用纯主色压在浅底上会偏淡（实测对比度只有 2.9~3.1），
@@ -100,7 +103,9 @@ body.gg-theme-lotus,
     --gg-primary-ink: color-mix(in srgb, var(--gg-deep) 82%, #1e1a18);
     --gg-secondary: color-mix(in srgb, var(--gg-deep) 84%, #fffdf8);
     --gg-accent: var(--gg-deep);
-    --gg-border: color-mix(in srgb, var(--gg-deep) 32%, transparent);
+    /* 分隔线是「结构」，不是「强调」—— 用主色调出来的线，
+       八行列表并排就是一张棕色网。所以这里也只从底色推。 */
+    --gg-border: color-mix(in srgb, var(--gg-base) 72%, #3c4045);
     --gg-input: color-mix(in srgb, var(--gg-base) 58%, #ffffff);
     --gg-on: #fffdf8;
     --gg-danger: #a35e5e;
@@ -641,7 +646,9 @@ body.gg-theme-lotus,
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
-    color: var(--gg-primary-ink);
+    /* 折叠标题是「结构文字」，不是「强调」—— 用主色压暗的字，
+       六块标题并排就是一片暗砖红。这类字一律回中性深墨。 */
+    color: var(--gg-text-2);
     text-align: left;
     cursor: pointer;
     transition: background 0.15s ease;
@@ -678,7 +685,7 @@ body.gg-theme-lotus,
 
 #gg-settings .gg-fold[aria-expanded="true"] .gg-fold-chev {
     transform: rotate(180deg);
-    color: var(--gg-primary-ink);
+    color: var(--gg-text-2);
 }
 
 /* 0fr → 1fr：高度自己算出来，不用写死 max-height，也不会有半截裁断 */
@@ -1139,7 +1146,7 @@ body.gg-theme-lotus,
     gap: 8px;
     margin-top: 18px;
     padding-top: 12px;
-    border-top: 1px solid color-mix(in srgb, var(--gg-deep) 42%, transparent);
+    border-top: 1px solid var(--gg-border);
     text-align: center;
     font-size: 10.5px;
     letter-spacing: 0.1em;
@@ -1413,17 +1420,34 @@ body.gg-theme-lotus,
 
 /* 点魔法棒那一条，面板自己浮上来 —— 不把她赶到「扩展」页去翻抽屉。
    整块 #gg-settings 会临时搬进 #gg-modal-body；外侧这层只负责居中、遮罩、宽高上限和滚动。
-   z-index 必须压过酒馆的 #extensionsMenu（那个是 29999）：魔杖菜单收起有延迟、
-   手机上还会因为点按顺序把我这边的 closeWandMenu 抖成「再开一次」，
-   层级低一格就会变成「点了一下什么都没发生」。 */
+
+   这一层是浏览器原生 <dialog>，靠 showModal() 进 top layer：
+   任何 z-index 都盖不住它（酒馆的 #extensionsMenu 是 29999，以前就输在这），
+   也不受手机端主题给 body 加 transform 的影响 —— 以前是 div + position:fixed，
+   只要有一个扩展给 body 或祖先加个 transform，fixed 就改成相对那个祖先定位，
+   inset:0 会按整页高度算，面板落到页面最顶端；她滚在聊天底部，就什么都看不见。
+   这就是「电脑能开、手机打不开」的真正原因。 */
 .gg-modal {
     position: fixed;
     inset: 0;
-    z-index: 2147483000;
-    display: flex;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 20px;
+    border: 0;
+    background: transparent;
+    overflow: visible;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+}
+
+.gg-modal[open] {
+    display: flex;
+}
+
+.gg-modal::backdrop {
     background: rgba(20, 18, 22, 0.42);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);

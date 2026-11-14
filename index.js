@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.25';
+const VERSION = '1.3.26';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1277,7 +1277,10 @@ function ensureModal() {
     if (modal) {
         return modal;
     }
-    modal = document.createElement('div');
+    // 用浏览器原生 <dialog>，配合 showModal() 进 top layer。
+    // 换成 div + position:fixed 也行，但手机端只要有个扩展给 body 加了 transform，
+    // fixed 就会退化成相对那个祖先定位，面板跑到整页最顶端 —— 这就是「电脑能开、手机打不开」。
+    modal = document.createElement('dialog');
     modal.id = 'gg-modal';
     modal.className = 'gg-modal gg-hidden';
     modal.innerHTML = `
@@ -1326,6 +1329,17 @@ function openPanelModal(retry = 0) {
     }
     syncExtEntry();
     modal.classList.remove('gg-hidden');
+    // showModal() 是唯一能保证「浮在最上面」的写法：它把 dialog 送进 top layer，
+    // 既盖过酒馆那个 29999 的魔杖菜单，也不受祖先 transform 影响。
+    if (typeof modal.showModal === 'function') {
+        if (!modal.open) {
+            try {
+                modal.showModal();
+            } catch (error) {
+                console.warn(TAG, 'showModal skipped', error);
+            }
+        }
+    }
 
     // 第一次打开面板就顺手把引导走到，不让她自己去猜
     if (!settings().guideSeen) {
@@ -1339,6 +1353,9 @@ function closePanelModal() {
         return;
     }
     modal.classList.add('gg-hidden');
+    if (modal.open && typeof modal.close === 'function') {
+        modal.close();
+    }
     const root = el('gg-settings');
     if (!root) {
         return;
@@ -1764,6 +1781,13 @@ function renderGuide() {
 
 function openGuide() {
     ensureGuide();
+    // 面板现在是 top layer 里的 <dialog>，引导层得跟着搬进去，
+    // 否则它留在普通层，会被自己的面板压在下面。
+    const host = el('gg-modal');
+    const guide = el('gg-guide');
+    if (host && guide && guide.parentElement !== host) {
+        host.appendChild(guide);
+    }
     guideIndex = 0;
     el('gg-guide')?.classList.remove('gg-hidden');
     renderGuide();
@@ -2408,7 +2432,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.25</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.26</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
