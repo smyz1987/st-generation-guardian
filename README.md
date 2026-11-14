@@ -394,6 +394,31 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 想重看：面板最下面那行版本号右边多了一枚小「?」（`#gg-help`），点它从第 1 步重来。
 - 引导是浮在 `body` 上的一层薄雾 + 一张卡，`z-index` 拉到最高；点遮罩空白处、点 ✕、走完最后一步点「开始用」都能关。手机端卡片贴底、宽度拉满。
 
+### 1.3.27：开关只剩空胶囊，是 input 的伪元素不渲染；引导会跳，是定时器在抢位置
+
+两个都是只在手机上露出来的。
+
+**开关。** 圆点原来画在 `input::after`。`<input>` 是**替换元素**，手机端那几个浏览器外壳根本不渲染它的伪元素 —— 表现就是只剩一颗空胶囊：轨道在、颜色在、点没了。电脑端能渲染，所以一直没发现。
+
+改法：圆点改用 `background-image` 画，一颗 13×13 的 `radial-gradient`，未选中 `background-position: 2px center`、选中 `18px center`。背景图在哪都能画出来。
+
+```css
+background-image: radial-gradient(circle closest-side, var(--gg-muted) 98%, transparent 100%) !important;
+background-repeat: no-repeat !important;
+background-size: 13px 13px !important;
+background-position: 2px center !important;
+```
+
+**引导跳帧。** 三处，全是「上一帧的活儿拖到了下一帧」：
+
+| 原因 | 现象 | 改法 |
+|---|---|---|
+| `settleSpotlight` 用 `[140,320,620,980]` 四个定时器重算位置 | 点「下一步」点快了，上一步的定时器还在，回来就把聚光灯拽回旧位置 | 加 token，每次切步自增；定时器回来先查 token，不对就作废 |
+| 时间点跟折叠展开的 340ms 动画不同步 | 框子在动画中途被量，跟着抖 | 改成 160 / 340 / 620，正好是动画中、动画刚结束、稳定后 |
+| `scrollIntoView` 每遍都无条件跑 | 滚完 rect 变了，下一遍又判定「不在视口内」，来回滚 | 同一步只滚一次（`guideScrolledStep`） |
+
+顺手把「先显示再定位」换成「先定位再显示」—— 反过来的话它会先停在上一次的位置闪一帧，再跳过来，看着就是掉了一帧。
+
 ### 1.3.26：手机端打不开，是 position:fixed 被手机的 transform 废了
 
 上一版把 z-index 抬到 `2147483000`，电脑上通了，手机上还是「点了什么都不发生」。这次把根因量出来了：**不是层级，是 `position: fixed` 在手机端失效了。**

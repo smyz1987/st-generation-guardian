@@ -936,7 +936,11 @@ body.gg-theme-lotus,
 /* 开关：固定 34×19 胶囊。
    她装了主题管理器 / Layout 这类全局美化，它们会拿 `input[type=checkbox]`
    整个重画（实测被改成 42×26 的紫色胶囊，跟面板完全不是一个东西）——
-   这几个尺寸和颜色必须 !important 才拿得回来。 */
+   这几个尺寸和颜色必须 !important 才拿得回来。
+
+   圆点用 background-image 画，不用 ::after：<input> 是替换元素，
+   手机端那几个浏览器外壳根本不渲染 input 的伪元素 —— 表现就是只剩一颗空胶囊，
+   只有轨道、没有点。背景图在哪都能画出来。 */
 #gg-settings .gg-check input[type="checkbox"] {
     -webkit-appearance: none !important;
     appearance: none !important;
@@ -949,36 +953,25 @@ body.gg-theme-lotus,
     padding: 0 !important;
     border-radius: 999px !important;
     border: 1px solid var(--gg-border) !important;
-    background: var(--gg-input) !important;
+    background-color: var(--gg-input) !important;
+    background-image: radial-gradient(circle closest-side, var(--gg-muted) 98%, transparent 100%) !important;
+    background-repeat: no-repeat !important;
+    background-size: 13px 13px !important;
+    background-position: 2px center !important;
     position: relative;
     cursor: pointer;
     box-shadow: none !important;
-    transition: background 0.18s ease, border-color 0.18s ease;
-}
-
-#gg-settings .gg-check input[type="checkbox"]::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 13px;
-    height: 13px;
-    border-radius: 50%;
-    background: var(--gg-muted);
-    transition: left 0.18s ease, background 0.18s ease;
+    transition: background-color 0.18s ease, border-color 0.18s ease, background-position 0.18s ease;
 }
 
 /* 选中态：轨道只掺 16% 主色，深色留给圆点。
    先前是主色铺满整颗胶囊，八行并排就成了一条糖色带 —— 她说「浑身棕」指的就是这个。
    现在轨道是浅的、点才是有分量的，八个摆在一起不再连成一片。 */
 #gg-settings .gg-check input[type="checkbox"]:checked {
-    background: color-mix(in srgb, var(--gg-deep) 16%, var(--gg-input)) !important;
+    background-color: color-mix(in srgb, var(--gg-deep) 16%, var(--gg-input)) !important;
+    background-image: radial-gradient(circle closest-side, var(--gg-primary-ink) 98%, transparent 100%) !important;
+    background-position: 18px center !important;
     border-color: color-mix(in srgb, var(--gg-deep) 52%, transparent) !important;
-}
-
-#gg-settings .gg-check input[type="checkbox"]:checked::after {
-    left: 18px;
-    background: var(--gg-primary-ink);
 }
 
 #gg-settings .gg-check input[type="checkbox"]:focus-visible {
@@ -989,13 +982,9 @@ body.gg-theme-lotus,
 #gg-settings .gg-check input[type="checkbox"]:disabled {
     opacity: 1;
     border-color: var(--gg-border);
-    background: color-mix(in srgb, var(--gg-muted) 30%, var(--gg-input));
+    background-color: color-mix(in srgb, var(--gg-muted) 30%, var(--gg-input));
+    background-image: radial-gradient(circle closest-side, var(--gg-card) 98%, transparent 100%) !important;
     cursor: not-allowed;
-}
-
-#gg-settings .gg-check input[type="checkbox"]:disabled::after {
-    background: var(--gg-card);
-    opacity: 0.5;
 }
 
 #gg-settings .gg-inline span {

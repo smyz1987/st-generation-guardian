@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.26';
+const VERSION = '1.3.27';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1561,6 +1561,14 @@ const GUIDE_STEPS = [
 
 let guideIndex = 0;
 
+/** 每切一步自增。老的 setTimeout 回来一看 token 不对就直接退出 ——
+    不然「下一步」点快一点，上一步那几个定时器还会把聚光灯拽回旧位置，看着就是一顿。 */
+let guideSettleToken = 0;
+
+/** 同一个步骤里只滚一次：scrollIntoView 会改 rect，下一遍进来又满足「不在视口内」，
+    来回滚就成了她说的「莫名其妙跳一下」。 */
+let guideScrolledStep = -1;
+
 let helpBound = false;
 
 /**
@@ -1684,23 +1692,34 @@ function placeSpotlight(selector) {
     }
     // 目标在面板滚动区外面时先把它滚进来 —— 不然洞会挖到视口外，
     // 气泡也跟着跑到看不见的地方。第七步往后全是折叠块，必须这一步。
+    // 但同一步只滚一次：滚完 rect 会变，再进来可能又判定「不在视口内」，
+    // 反复来回滚就成了「莫名其妙跳一下」。
     const vh = window.innerHeight || 800;
     if (rect.top < 70 || rect.bottom > vh - 70) {
-        try {
-            target.scrollIntoView({ block: 'center', behavior: 'auto' });
-        } catch {
-            /* 老浏览器没有 options 参数，直接滚 */
-            target.scrollIntoView();
+        if (guideScrolledStep !== guideIndex) {
+            guideScrolledStep = guideIndex;
+            try {
+                target.scrollIntoView({ block: 'center', behavior: 'auto' });
+            } catch {
+                /* 老浏览器没有 options 参数；有些环境（测试里的 DOM）压根没这个方法 */
+                try {
+                    target.scrollIntoView();
+                } catch {
+                    /* 滚不动就算了，洞画在视口外总比整块崩掉强 */
+                }
+            }
+            rect = target.getBoundingClientRect();
         }
-        rect = target.getBoundingClientRect();
     }
 
     const pad = 6;
-    spot.style.display = '';
+    // 先把位置写好，最后才让它出现 —— 顺序反过来会先停在上一次的位置闪一帧，
+    // 再跳到正确的地方，看着就是掉了一帧。
     spot.style.top = `${Math.round(rect.top - pad)}px`;
     spot.style.left = `${Math.round(rect.left - pad)}px`;
     spot.style.width = `${Math.round(rect.width + pad * 2)}px`;
     spot.style.height = `${Math.round(rect.height + pad * 2)}px`;
+    spot.style.display = '';
 
     // 气泡优先贴在下面，下面放不下就翻到上面
     const gap = 12;
@@ -1719,17 +1738,27 @@ function placeSpotlight(selector) {
  * 等它停稳 —— 洞会平滑地飘到正确那一行，不会先错再跳。
  */
 function settleSpotlight(selector) {
+    const token = ++guideSettleToken;
     if (!selector) {
         placeSpotlight(null);
         return;
     }
     placeSpotlight(selector);
-    [140, 320, 620, 980].forEach((delay) => {
-        setTimeout(() => placeSpotlight(selector), delay);
+    // 时间点对着折叠展开那 340ms 的动画走：160 在动画中、340 刚结束、620 稳定后。
+    // 每次回来先查 token —— 已经翻到下一步就作废，别把框子拽回去。
+    [160, 340, 620].forEach((delay) => {
+        setTimeout(() => {
+            if (token !== guideSettleToken) {
+                return;
+            }
+            placeSpotlight(selector);
+        }, delay);
     });
 }
 
 function renderGuide() {
+    // 换了一步，允许再滚一次
+    guideScrolledStep = -1;
     const step = GUIDE_STEPS[guideIndex] || GUIDE_STEPS[0];
     const title = el('gg-guide-title');
     if (title) {
@@ -2432,7 +2461,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.26</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.27</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
