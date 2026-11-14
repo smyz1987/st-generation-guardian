@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.23';
+const VERSION = '1.3.24';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -2396,7 +2396,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.23</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.24</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
@@ -2874,11 +2874,53 @@ function scanForRecoverySafe(options = {}) {
     }
 }
 
+/* 酒馆给扩展样式表挂的是 <link href=".../style.css">，不带任何版本参数，
+   浏览器就把这个 CSS 当成静态资源长期缓存 —— 于是 git pull 了、manifest 版本也变了、
+   文件内容明明是新的，页面上还是上一版的颜色。她连着四轮看到的「没变化」都有这一份。
+   这里把自己那条 link 换成带 ?v=VERSION 的：版本一变，URL 就变，缓存一定失效。
+   换完把旧的摘掉，避免两份样式表同时生效。 */
+function bustOwnStylesheet() {
+    try {
+        const own = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+            .filter((el) => /st-generation-guardian\/style\.css/.test(el.href))
+            .filter((el) => !/\?v=/.test(el.href));
+        if (!own.length) {
+            return;
+        }
+        for (const old of own) {
+            const fresh = document.createElement('link');
+            fresh.rel = 'stylesheet';
+            fresh.type = 'text/css';
+            fresh.href = `${old.href}?v=${VERSION}`;
+            fresh.addEventListener('load', () => {
+                try {
+                    old.remove();
+                } catch {
+                    /* 旧的摘不掉也不影响 */
+                }
+            }, { once: true });
+            old.parentNode.insertBefore(fresh, old.nextSibling);
+            // 兜底：加载事件在某些浏览器上不来，1.2 秒后照样摘
+            setTimeout(() => {
+                try {
+                    old.remove();
+                } catch {
+                    /* 已经摘过了 */
+                }
+            }, 1200);
+        }
+    } catch (error) {
+        console.warn(TAG, 'stylesheet refresh skipped', error);
+    }
+}
+
 function initOnce() {
     if (initialized) {
         return;
     }
     initialized = true;
+
+    bustOwnStylesheet();
 
     const ctx = getContext();
     const events = ctx.eventTypes || ctx.event_types;

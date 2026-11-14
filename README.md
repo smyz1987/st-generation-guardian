@@ -394,6 +394,22 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 想重看：面板最下面那行版本号右边多了一枚小「?」（`#gg-help`），点它从第 1 步重来。
 - 引导是浮在 `body` 上的一层薄雾 + 一张卡，`z-index` 拉到最高；点遮罩空白处、点 ✕、走完最后一步点「开始用」都能关。手机端卡片贴底、宽度拉满。
 
+### 1.3.24：文件是新的，浏览器给的是旧的
+
+她 pull 到 1.3.23、`manifest` 版本也对、`git status` 干净、GitHub 上那份也是新的，**面板还是上一版的颜色**。
+
+问题不在扩展，在缓存。酒馆挂扩展样式表时给的是：
+
+```html
+<link rel="stylesheet" href="/scripts/extensions/third-party/st-generation-guardian/style.css">
+```
+
+**没有版本参数**。浏览器就把这个 URL 当成永久静态资源，`git pull` 换掉磁盘上的文件，它照样拿内存/磁盘里那份旧的出来用。JS 走 `import`，同样不带参数，也会被同样缓存 —— 这就是「明明更新了却没变化」。
+
+现在 `initOnce()` 第一件事是 `bustOwnStylesheet()`：把自己那条 `link` 换成 `…/style.css?v=<VERSION>`，加载成功后把旧的摘掉。**版本一变 URL 就变，缓存一定失效**，之后每版都自动生效，不用再记着强刷。
+
+**但这次你还是得手动硬刷一次**（`Ctrl + Shift + R`）：要跑这段自愈代码，本身得先加载到 1.3.24 的 `index.js`，而它现在正被缓存挡着。
+
 ### 1.3.23：那一大块棕不是色号错，是**面积叠出来的**
 
 她又发了一张展开主题的截图：「到底是什么bug」。这次不是 `color-mix` 的问题，三处全在几何上：
