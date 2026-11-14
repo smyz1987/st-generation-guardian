@@ -1113,6 +1113,10 @@ body.gg-theme-lotus,
 }
 
 #gg-settings .gg-ver {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     margin-top: 18px;
     padding-top: 12px;
     border-top: 1px solid color-mix(in srgb, var(--gg-deep) 42%, transparent);
@@ -1120,6 +1124,183 @@ body.gg-theme-lotus,
     font-size: 10.5px;
     letter-spacing: 0.1em;
     color: var(--gg-muted);
+}
+
+/* 底部那个「?」：不占地方，但随时能把引导重新翻出来 */
+#gg-settings .gg-help {
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
+    padding: 0;
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--gg-muted) 45%, transparent);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8.5px;
+    line-height: 1;
+    color: var(--gg-muted);
+    background: none;
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+#gg-settings .gg-help:hover {
+    color: var(--gg-primary);
+    border-color: color-mix(in srgb, var(--gg-primary) 60%, transparent);
+    background: color-mix(in srgb, var(--gg-primary) 8%, transparent);
+}
+
+#gg-settings .gg-help:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gg-primary) 55%, transparent);
+    outline-offset: 2px;
+}
+
+/* ---------- 新手引导：一层薄雾 + 一张卡 ---------- */
+
+.gg-guide {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(12, 14, 18, 0.42);
+    backdrop-filter: blur(2px);
+    animation: gg-guide-in 0.2s ease both;
+}
+
+@keyframes gg-guide-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.gg-guide-card {
+    width: min(400px, 100%);
+    max-height: min(78vh, 560px);
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, #ffffff 12%, transparent);
+    background: var(--gg-base, #f3e8dc);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+    color: var(--gg-text, #3a3330);
+    font-size: 13px;
+    line-height: 1.65;
+    overflow: hidden;
+    animation: gg-guide-rise 0.26s cubic-bezier(0.2, 0.85, 0.3, 1) both;
+}
+
+@keyframes gg-guide-rise {
+    from { opacity: 0; transform: translateY(10px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.gg-guide-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 14px 11px;
+    border-bottom: 1px solid color-mix(in srgb, var(--gg-deep, #2c2b34) 16%, transparent);
+}
+
+.gg-guide-tag {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--gg-base, #f3e8dc);
+    background: var(--gg-deep, #2c2b34);
+}
+
+.gg-guide-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--gg-text, #3a3330);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gg-guide-step {
+    margin-left: auto;
+    flex: 0 0 auto;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--gg-muted, #8b7f78);
+}
+
+.gg-guide-body {
+    padding: 13px 15px 15px;
+    overflow-y: auto;
+}
+
+.gg-guide-body p {
+    margin: 0 0 9px;
+}
+
+.gg-guide-body p:last-child {
+    margin-bottom: 0;
+}
+
+.gg-guide-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px 13px;
+    border-top: 1px solid color-mix(in srgb, var(--gg-deep, #2c2b34) 14%, transparent);
+}
+
+.gg-guide-dots {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.gg-guide-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--gg-deep, #2c2b34) 22%, transparent);
+    transition: width 0.2s ease, background 0.2s ease;
+}
+
+.gg-guide-dot[data-active="true"] {
+    width: 12px;
+    border-radius: 3px;
+    background: var(--gg-primary, #a37070);
+}
+
+@media (max-width: 700px) {
+    .gg-guide {
+        padding: 12px;
+        align-items: flex-end;
+    }
+
+    .gg-guide-card {
+        max-height: 74vh;
+        width: 100%;
+    }
+
+    .gg-guide-body {
+        font-size: 12.5px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .gg-guide,
+    .gg-guide-card {
+        animation: none;
+    }
 }
 
 .gg-hidden {

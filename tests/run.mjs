@@ -1613,6 +1613,66 @@ async function scenarioPanelFolds() {
     restoreConsole();
 }
 
+/* 30：第一次用带一遍引导，之后只在点「?」的时候出现。
+   她的原话是「你几句话放按钮不觉得很累赘吗，加个新手引导就行了」，
+   所以面板上的名字要短、解释都在引导里。 */
+async function scenarioGuide() {
+    console.log('\n[30] 引导只自动弹一次，之后靠面板底部的「?」重看');
+    captureConsole();
+    storage.clear();
+    const ctx = createWorld({ chat: makeChat() });
+    await bootExtension();
+    await signalReady(ctx);
+    await sleep(1000);
+
+    const guide = document.getElementById('gg-guide');
+    ok('第一次进来会自己弹一遍', Boolean(guide) && !guide.classList.contains('gg-hidden'));
+    eq('第一步是「它管什么」', document.getElementById('gg-guide-title')?.textContent?.trim(), '它管什么');
+    eq('步数标着 1 / 7', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
+    eq('底部七颗进度点', document.querySelectorAll('#gg-guide-dots .gg-guide-dot').length, 7);
+    ok('第一步的上一步是灰的', Boolean(document.getElementById('gg-guide-prev')?.disabled));
+
+    const next = document.getElementById('gg-guide-next');
+    next.click();
+    eq('点下一步走到第 2 步', document.getElementById('gg-guide-step')?.textContent?.trim(), '2 / 7');
+    eq('第二步讲主题', document.getElementById('gg-guide-title')?.textContent?.trim(), '主题');
+
+    for (let i = 0; i < 5; i += 1) {
+        next.click();
+    }
+    eq('走到最后一步', document.getElementById('gg-guide-step')?.textContent?.trim(), '7 / 7');
+    eq('最后一步的按钮变成「开始用」', next.textContent?.trim(), '开始用');
+    next.click();
+    ok('点「开始用」就收起', document.getElementById('gg-guide').classList.contains('gg-hidden'));
+    eq('看过了这件事记进设置', extensionSettingsStub['generation-guardian']?.guideSeen, true);
+
+    // 重开一次：不该再自己跳出来
+    storage.clear();
+    await bootExtension();
+    await signalReady(ctx);
+    await sleep(1000);
+    ok('第二次进来不再自动弹', document.getElementById('gg-guide').classList.contains('gg-hidden'));
+
+    // 面板底部那个「?」随时能翻出来
+    document.getElementById('gg-help').click();
+    ok('点「?」又出来了', !document.getElementById('gg-guide').classList.contains('gg-hidden'));
+    eq('而且是从第一步重来', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
+
+    // 点遮罩空白处关掉
+    document.getElementById('gg-guide').click();
+    ok('点遮罩也能关', document.getElementById('gg-guide').classList.contains('gg-hidden'));
+
+    // 面板上的名字要短，解释都在引导里
+    const labels = [...document.querySelectorAll('#gg-switch-fold .gg-check span')].map((node) => node.textContent.trim());
+    eq('开关一共八个', labels.length, 8);
+    ok('每个名字都不超过十个字、也不带括号解释',
+        labels.every((text) => text.length <= 10 && !text.includes('（')), labels.join(' / '));
+    eq('一行都没有残留的说明段', document.querySelectorAll('#gg-settings .gg-hint').length, 0);
+
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1646,6 +1706,7 @@ async function main() {
     await scenarioPostFinishGuard();
     await scenarioQuickBarPlacement();
     await scenarioPanelFolds();
+    await scenarioGuide();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

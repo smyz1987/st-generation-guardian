@@ -95,6 +95,8 @@ const DEFAULT_SETTINGS = {
     // 接回后补发一次 CHARACTER_MESSAGE_RENDERED，让状态栏 / 变量 / TTS / 翻译这类
     // 挂在「消息渲染完成」上的扩展认得这条刚接回来的消息
     notifyRenderers: true,
+    // 新手引导是不是看过了；没看过就第一次打开面板时带一遍
+    guideSeen: false,
 };
 
 /* ------------------------------------------------------------------ *
@@ -1239,8 +1241,8 @@ function openSettingsDrawer(retry = 0) {
     const scroll = () => {
         try {
             root.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        } catch (error) {
-            console.debug(TAG, error);
+        } catch {
+            // 有些环境没有 scrollIntoView（比如测试里的 jsdom），滚不过去也无所谓
         }
     };
     scroll();
@@ -1310,6 +1312,7 @@ function registerSlashCommand() {
 
 function ensureUI() {
     syncBadge();
+    bindHelpButton();
     if (el('gg-panel')) {
         return;
     }
@@ -1381,6 +1384,171 @@ function ensureUI() {
         hidePanel();
         toast('草稿已丢弃', 'info');
     });
+
+    ensureGuide();
+}
+
+/* ------------------------------------------------------------------ *
+ * 新手引导
+ *
+ * 设置项的名字都很短，解释全搬到这儿来 —— 面板上不该再堆一排括号说明。
+ * 第一次用自动带一遍，之后想重看就点面板最下面那行的「?」。
+ * ------------------------------------------------------------------ */
+
+const GUIDE_STEPS = [
+    {
+        title: '它管什么',
+        body: `流式回复写到一半被刷新、被别的扩展刷页、被手机杀掉后台 —— 屏幕上已经写出来的字会整段消失，API 额度照扣。
+这个扩展每 0.8 秒把正在写的草稿存进本机，回来帮你接回聊天。`,
+    },
+    {
+        title: '主题',
+        body: `八套配色。收起那一行右边的八颗点就是八套本身，当前那套的点大一点、外面套着环。
+点那一行，盖子掀开，下面就是八张卡。`,
+    },
+    {
+        title: '两个拦截',
+        body: `「拦截刷新和关闭页面」：生成中按 F5、关窗口会被拦一次，问你要不要真刷。
+「拦住会刷新的扩展操作」：生成中禁用 / 删除 / 清理扩展会被拦；更新和换分支不拦，那是你自己点的。`,
+    },
+    {
+        title: '接回的两个开关',
+        body: `「被打断时自动接回」：刷新回来直接把草稿写回聊天，不用你点「接回」。
+「安静模式」：正常写完一个字都不弹，只有真被打断才出声。`,
+    },
+    {
+        title: '通知和入口',
+        body: `「通知状态栏类扩展」：接回后广播一次「这条渲染好了」，给自动翻译 / 状态栏 / TTS 用。本扩展不额外发请求。
+「快捷栏里留一条入口」：QR 栏存在才出现；栏关着就彻底没有，不会浮在聊天框上。`,
+    },
+    {
+        title: '续写和存储',
+        body: `「续写后直接发送」关着的时候，点「续写」只把指令放进输入框，你可以先补两句再按发送。
+存储那一块管：留几条草稿、留几天、多少秒没新字算卡住。`,
+    },
+    {
+        title: '兼容状态和草稿',
+        body: `「兼容状态」列出会自己刷页的扩展，数字是命中几个 —— 它们刷新前我们先把草稿钉进存储。
+「已保存草稿」按时间倒序，可以逐条接回，也可以一键清空。
+想重看这份引导，就点面板最下面那行的「?」。`,
+    },
+];
+
+let guideIndex = 0;
+
+/** 面板底部那个「?」：扩展重载时 panel 会复用，所以绑一次就做个记号 */
+function bindHelpButton() {
+    const btn = el('gg-help');
+    if (!btn || btn.dataset.ggBound === '1') {
+        return;
+    }
+    btn.dataset.ggBound = '1';
+    btn.addEventListener('click', () => openGuide());
+}
+
+function ensureGuide() {
+    if (el('gg-guide')) {
+        return;
+    }
+    const wrap = document.createElement('div');
+    wrap.id = 'gg-guide';
+    wrap.className = 'gg-guide gg-hidden';
+    wrap.innerHTML = `
+        <div class="gg-guide-card" role="dialog" aria-modal="true" aria-labelledby="gg-guide-title">
+            <div class="gg-guide-head">
+                <span class="gg-guide-tag">新手引导</span>
+                <span class="gg-guide-title" id="gg-guide-title"></span>
+                <span class="gg-guide-step" id="gg-guide-step"></span>
+                <button type="button" class="gg-icon-btn" id="gg-guide-close" title="关掉"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="gg-guide-body" id="gg-guide-body"></div>
+            <div class="gg-guide-foot">
+                <button type="button" class="gg-btn gg-mini" id="gg-guide-prev">上一步</button>
+                <div class="gg-guide-dots" id="gg-guide-dots" aria-hidden="true"></div>
+                <button type="button" class="gg-btn gg-mini gg-primary" id="gg-guide-next">下一步</button>
+            </div>
+        </div>`;
+    document.body.appendChild(wrap);
+
+    el('gg-guide-close').addEventListener('click', () => closeGuide());
+    el('gg-guide-prev').addEventListener('click', () => {
+        if (guideIndex > 0) {
+            guideIndex -= 1;
+            renderGuide();
+        }
+    });
+    el('gg-guide-next').addEventListener('click', () => {
+        if (guideIndex >= GUIDE_STEPS.length - 1) {
+            closeGuide();
+            return;
+        }
+        guideIndex += 1;
+        renderGuide();
+    });
+    wrap.addEventListener('click', (event) => {
+        if (event.target === wrap) {
+            closeGuide();
+        }
+    });
+    renderGuide();
+}
+
+function renderGuide() {
+    const step = GUIDE_STEPS[guideIndex] || GUIDE_STEPS[0];
+    const title = el('gg-guide-title');
+    if (title) {
+        title.textContent = step.title;
+    }
+    const counter = el('gg-guide-step');
+    if (counter) {
+        counter.textContent = `${guideIndex + 1} / ${GUIDE_STEPS.length}`;
+    }
+    const body = el('gg-guide-body');
+    if (body) {
+        body.textContent = '';
+        for (const line of String(step.body || '').split('\n')) {
+            const text = line.trim();
+            if (!text) {
+                continue;
+            }
+            const p = document.createElement('p');
+            p.textContent = text;
+            body.appendChild(p);
+        }
+    }
+    const dots = el('gg-guide-dots');
+    if (dots) {
+        dots.textContent = '';
+        for (let i = 0; i < GUIDE_STEPS.length; i += 1) {
+            const dot = document.createElement('i');
+            dot.className = 'gg-guide-dot';
+            dot.dataset.active = String(i === guideIndex);
+            dots.appendChild(dot);
+        }
+    }
+    const prev = el('gg-guide-prev');
+    if (prev) {
+        prev.disabled = guideIndex === 0;
+    }
+    const next = el('gg-guide-next');
+    if (next) {
+        next.textContent = guideIndex >= GUIDE_STEPS.length - 1 ? '开始用' : '下一步';
+    }
+}
+
+function openGuide() {
+    ensureGuide();
+    guideIndex = 0;
+    renderGuide();
+    el('gg-guide')?.classList.remove('gg-hidden');
+}
+
+function closeGuide() {
+    el('gg-guide')?.classList.add('gg-hidden');
+    if (!settings().guideSeen) {
+        settings().guideSeen = true;
+        persistSettings();
+    }
 }
 
 function showPanel(snapshot) {
@@ -1938,13 +2106,13 @@ const SETTINGS_HTML = `
             <div class="gg-fold-body">
                 <div class="gg-fold-inner">
                     <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>在 QR 快捷栏里留一条「生成守护」（生成中顺便报「已保存 N 字」，点它打开本面板）</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」后直接替我发出去（默认关：只把指令放进输入框，你可以先补几句再按发送）</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>拦截刷新和关闭页面</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>拦住会刷新的扩展操作</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动接回</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>通知状态栏类扩展</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>快捷栏里留一条入口</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>续写后直接发送</span></label>
                 </div>
             </div>
         </div>
@@ -1961,7 +2129,7 @@ const SETTINGS_HTML = `
                         <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用主线指令</button>
                         <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
                     </div>
-                    <div class="gg-hint">点「续写」时发出去的就是这一条，可以改成自己习惯的说法。</div>
+                    
                 </div>
             </div>
         </div>
@@ -1975,7 +2143,7 @@ const SETTINGS_HTML = `
                 <div class="gg-fold-inner">
                     <label class="gg-check gg-inline"><span>最多保留</span><input type="number" class="text_pole gg-num" id="gg-set-max" min="1" max="50" step="1"><span>条草稿</span></label>
                     <label class="gg-check gg-inline"><span>保留</span><input type="number" class="text_pole gg-num" id="gg-set-days" min="1" max="30" step="1"><span>天</span></label>
-                    <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没新字就提示（0 关掉）</span></label>
+                    <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没字就提示</span></label>
                 </div>
             </div>
         </div>
@@ -1989,7 +2157,7 @@ const SETTINGS_HTML = `
             <div class="gg-fold-body">
                 <div class="gg-fold-inner">
                     <div id="gg-compat-list" class="gg-snap-list"></div>
-                    <div class="gg-hint">按「实际装着的目录」检测（不看设置里残留的旧 key）。这些扩展都有自己的定时器在刷新页面，拿不到它们的 timer，所以：刷新前先把草稿钉进存储，回来再自动补回。生成中点它们的「更新」会被我们拦住。</div>
+                    
                 </div>
             </div>
         </div>
@@ -2004,12 +2172,15 @@ const SETTINGS_HTML = `
                 <div class="gg-fold-inner">
                     <div id="gg-snap-list" class="gg-snap-list"></div>
                     <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
-                    <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
+                    
                 </div>
             </div>
         </div>
 
-        <div class="gg-ver">v<span id="gg-ver">1.3.14</span> · smyz1987 · MIT</div>
+        <div class="gg-ver">
+            <span>v<span id="gg-ver">1.3.14</span> · smyz1987 · MIT</span>
+            <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
+        </div>
     </div>
 </div>`;
 
@@ -2221,6 +2392,7 @@ function mountSettings(retry = 0) {
     el('gg-set-days').value = String(keepDays());
     el('gg-set-stall').value = String(Math.round(stallMs() / 1000));
     el('gg-ver').textContent = VERSION;
+    bindHelpButton();
     renderCompatSection();
 
     /* 收起那一行里的小巧思：八颗点就是八套配色本身，横着排成一条调色盘；
@@ -2535,6 +2707,17 @@ function initOnce() {
     mountSettings();
     // 让刷新/重载后的恢复卡片晚一点出现，等聊天先渲染完
     setTimeout(scanForRecoverySafe, 600);
+
+    // 第一次用的话，带一遍引导；看过了就再也不主动弹
+    setTimeout(() => {
+        try {
+            if (!settings().guideSeen) {
+                openGuide();
+            }
+        } catch (error) {
+            console.warn(TAG, 'guide failed', error);
+        }
+    }, 900);
 
     window.GenerationGuardian = {
         version: VERSION,
