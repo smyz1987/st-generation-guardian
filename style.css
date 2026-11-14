@@ -96,7 +96,6 @@ body.gg-theme-lotus,
 }
 
 /* 派生：声明在会吃到主题继承的元素上 */
-#gg-badge,
 #gg-panel,
 #gg-settings {
     --gg-hair: color-mix(in srgb, var(--gg-text) 10%, transparent);
@@ -108,56 +107,39 @@ body.gg-theme-lotus,
     --gg-shadow: color-mix(in srgb, var(--gg-primary) 22%, transparent);
 }
 
-/* ---------- 快捷栏里的一条（原来的生成中徽标） ---------- */
+/* ---------- 魔杖菜单里的一条 ---------- */
 
-/* 不再 fixed 挂在聊天框上方。它现在的家是 QR 快捷栏：
-   平时是「生成守护」一条常驻快捷，生成中借它报「已保存 N 字 · 别刷新」。
-   JS 那边只往 #qr--bar（或 .qr--buttons）里 append，栏不在就整个不出现。 */
-#gg-badge {
-    position: static;
-    flex: 0 0 auto;
+/* 它跟别的扩展按钮排在同一个 #extensionsMenu 里，底色、hover、圆角、内边距
+   全交给酒馆自己的规则（#extensionsMenu > .extension_container > div），
+   这里只补排版和生成中那行小字 —— 不额外造一套皮肤，任何全局美化下都不打架。 */
+#gg-wand-entry {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 9px;
-    border-radius: 6px;
-    font-size: 11.5px;
+}
+
+#gg-wand-entry .gg-wand-name {
+    flex: 0 0 auto;
+}
+
+#gg-wand-entry .gg-wand-state {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    padding-left: 6px;
+    font-size: 10px;
     letter-spacing: 0.02em;
-    line-height: 1.35;
-    color: var(--SmartThemeBodyColor, var(--gg-ink));
-    background: color-mix(in srgb, var(--gg-base) 16%, transparent);
-    border: 1px solid color-mix(in srgb, var(--gg-base) 34%, transparent);
-    box-shadow: none;
-    cursor: pointer;
-    max-width: min(260px, 46vw);
+    opacity: 0.7;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: background 0.16s ease, border-color 0.16s ease;
 }
 
-#gg-badge:hover {
-    background: color-mix(in srgb, var(--gg-base) 26%, transparent);
-    border-color: color-mix(in srgb, var(--gg-base) 52%, transparent);
-}
-
-#gg-badge:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--gg-base) 70%, transparent);
-    outline-offset: 2px;
-}
-
-#gg-badge .gg-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    flex: 0 0 auto;
-    background: var(--gg-base);
-    animation: gg-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes gg-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+/* 生成中：右边那行小字亮起来（菜单收起时看不到，摊开一眼就知道正在存） */
+#gg-wand-entry.gg-wand-live .gg-wand-state {
+    opacity: 1;
+    font-weight: 600;
+    color: var(--gg-primary, inherit);
 }
 
 /* ---------- 恢复卡片 ---------- */
@@ -1310,15 +1292,6 @@ body.gg-theme-lotus,
 /* ---------- 手机端 ---------- */
 
 @media (max-width: 700px) {
-    #gg-badge {
-        left: 50%;
-        transform: translateX(-50%);
-        bottom: calc(100dvh - 46px);
-        font-size: 11px;
-        max-width: 84vw;
-        padding: 6px 12px;
-    }
-
     #gg-panel {
         left: 8px;
         right: 8px;

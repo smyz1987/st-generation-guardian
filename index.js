@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.14';
+const VERSION = '1.3.15';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -545,20 +545,19 @@ function releaseGeneration() {
     updateBadge('');
 }
 
+/**
+ * 魔杖菜单里的那一条：平时写作「生成守护」，生成中借右侧那行小字报「已保存 N 字」。
+ * 菜单收起时它只是一个不占地方的按钮，点开魔法棒才看得到 —— 正好是她要的样子。
+ */
 function updateBadge(text) {
-    const badge = el('gg-badge');
-    const label = el('gg-badge-text');
-    if (!badge || !label) {
+    const item = el('gg-wand-entry');
+    const state = el('gg-wand-state');
+    if (!item || !state) {
         return;
     }
-    if (!settings().enabled || !settings().showBadge) {
-        badge.classList.add('gg-hidden');
-        return;
-    }
-    // 这一块现在是 QR 快捷栏里的一条常驻入口：平时就是「生成守护」四个字，
-    // 生成中借它报「已保存 N 字 · 别刷新」，点一下都跳到设置面板。
-    badge.classList.remove('gg-hidden');
-    label.textContent = text || '生成守护';
+    item.style.display = settings().showBadge ? '' : 'none';
+    state.textContent = text || '';
+    item.classList.toggle('gg-wand-live', Boolean(text));
 }
 
 let pendingSnapshot = null;
@@ -598,7 +597,7 @@ function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
     };
     lastSavedText = '';
     generating = true;
-    updateBadge('生成守护：已开始记录…');
+    updateBadge('记录中…');
     armUnloadGuard();
     armStallWatch();
 }
@@ -659,9 +658,9 @@ function onStreamToken(text) {
     buffer.text = text;
     buffer.updatedAt = Date.now();
     if (storageFailed) {
-        updateBadge(`生成守护：已保存 ${text.length} 字（本地存储不可用！）`);
+        updateBadge(`已保存 ${text.length} 字（存储不可用）`);
     } else {
-        updateBadge(`生成守护：已保存 ${text.length} 字 · 别刷新`);
+        updateBadge(`已保存 ${text.length} 字`);
     }
     armStallWatch();
     scheduleFlush();
@@ -1149,64 +1148,74 @@ async function undoAutoRestore() {
 }
 
 /**
- * 快捷栏宿主。她要求「不要在聊天框上方挂图标」，
- * 所以生成中的状态提示只活在 QR 快捷栏里（酒馆原生 #qr--bar，或酒馆助手自己建的那条），
- * 栏不存在就干脆不出现 —— 绝不退回 body 上浮着。
- * 结构参考酒馆助手 panel/script/use_button_destination_element.ts：
- * isCombined 时挂到 #qr--bar 里的 .qr--buttons，否则就挂 #qr--bar 本身。
+ * 魔杖菜单里的一条。
+ * 她不要聊天框上面挂图标，也不要再单独做一份酒馆助手脚本 —— 入口就放回酒馆自己的
+ * 魔法棒：跟别的扩展的按钮排在一起，收起时不占版面，点开就有。
+ * 结构照酒馆原生模板：`#extensionsMenu > .extension_container > div`。
  */
-function quickBarHost() {
-    const sendForm = document.getElementById('send_form');
-    if (!sendForm) {
-        return null;
+function mountWandEntry() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu) {
+        return false;
     }
-    const bar = Array.from(sendForm.querySelectorAll('div')).find((node) => node.id === 'qr--bar');
-    if (!bar) {
-        return null;
+    if (document.getElementById('gg-wand-entry')) {
+        return true;
     }
-    let combined = false;
-    try {
-        combined = Boolean(getContext()?.extensionSettings?.quickReplyV2?.isCombined);
-    } catch (error) {
-        combined = false;
+    let box = document.getElementById('gg_wand_container');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'gg_wand_container';
+        box.className = 'extension_container';
+        menu.appendChild(box);
     }
-    if (!combined) {
-        return bar;
-    }
-    let buttons = bar.querySelector('.qr--buttons');
-    if (!buttons) {
-        buttons = document.createElement('div');
-        buttons.className = 'qr--buttons';
-        bar.appendChild(buttons);
-    }
-    return buttons;
+    const item = document.createElement('div');
+    item.id = 'gg-wand-entry';
+    item.className = 'gg-wand-item';
+    item.tabIndex = 0;
+    item.title = '生成守护';
+
+    const icon = document.createElement('div');
+    icon.className = 'fa-fw fa-solid fa-shield-halved extensionsMenuExtensionButton';
+    const name = document.createElement('span');
+    name.className = 'gg-wand-name';
+    name.textContent = '生成守护';
+    const state = document.createElement('span');
+    state.className = 'gg-wand-state';
+    state.id = 'gg-wand-state';
+
+    item.append(icon, name, state);
+    item.addEventListener('click', () => {
+        openSettingsDrawer();
+    });
+    item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openSettingsDrawer();
+        }
+    });
+    box.appendChild(item);
+    return true;
 }
 
-/** 把徽标归位到快捷栏；没有快捷栏就收起来 */
-function syncBadge() {
-    const host = quickBarHost();
-    let badge = el('gg-badge');
-    if (!host) {
-        badge?.remove();
+/** 魔杖菜单是酒馆自己按需建的，没建出来就隔一会儿再挂一次 */
+function syncWandEntry(retry = 0) {
+    if (mountWandEntry()) {
         return;
     }
-    if (!badge) {
-        badge = document.createElement('div');
-        badge.id = 'gg-badge';
-        badge.className = 'gg-hidden';
-        badge.title = '生成守护';
-        badge.innerHTML = '<span class="gg-dot"></span><span id="gg-badge-text">生成守护</span>';
-        badge.addEventListener('click', () => {
-            openSettingsDrawer();
-        });
+    if (retry < 10) {
+        setTimeout(() => syncWandEntry(retry + 1), 400);
     }
-    if (badge.parentElement !== host) {
-        host.appendChild(badge);
-    }
-    // 常驻：栏里一建好就先亮出「生成守护」，不必等到下一次生成
-    if (!badge.dataset.ggReady) {
-        badge.dataset.ggReady = '1';
-        updateBadge('');
+}
+
+/** 那一行点下去之后，魔杖菜单也该收起来 */
+function closeWandMenu() {
+    try {
+        const menu = document.getElementById('extensionsMenu');
+        if (menu && menu.style.display !== 'none') {
+            document.getElementById('extensionsMenuButton')?.click();
+        }
+    } catch (error) {
+        console.debug(TAG, error);
     }
 }
 
@@ -1215,6 +1224,7 @@ function syncBadge() {
  * —— 用酒馆自己的 drawer 结构（.drawer > .drawer-toggle / .drawer-content.closedDrawer）。
  */
 function openSettingsDrawer(retry = 0) {
+    closeWandMenu();
     try {
         const host = document.getElementById('extensions_settings2');
         const drawer = host?.closest('.drawer-content');
@@ -1260,25 +1270,9 @@ function openPanel() {
     return true;
 }
 
-/* QR 栏会被酒馆和酒馆助手反复重建，徽标得跟着重新归位 */
-let quickBarObserver = null;
-let quickBarTimer = null;
-
-function watchQuickBar() {
-    const sendForm = document.getElementById('send_form');
-    if (!sendForm || quickBarObserver || typeof MutationObserver !== 'function') {
-        return;
-    }
-    quickBarObserver = new MutationObserver(() => {
-        if (quickBarTimer) {
-            clearTimeout(quickBarTimer);
-        }
-        quickBarTimer = setTimeout(() => {
-            quickBarTimer = null;
-            syncBadge();
-        }, 120);
-    });
-    quickBarObserver.observe(sendForm, { childList: true, subtree: true });
+/* 魔杖菜单由酒馆在启动后建出来，建好了再把我们那条塞进去 */
+function watchWandMenu() {
+    syncWandEntry();
 }
 
 /**
@@ -1311,7 +1305,7 @@ function registerSlashCommand() {
 }
 
 function ensureUI() {
-    syncBadge();
+    syncWandEntry();
     bindHelpButton();
     if (el('gg-panel')) {
         return;
@@ -1419,7 +1413,7 @@ const GUIDE_STEPS = [
     {
         title: '通知和入口',
         body: `「通知状态栏类扩展」：接回后广播一次「这条渲染好了」，给自动翻译 / 状态栏 / TTS 用。本扩展不额外发请求。
-「快捷栏里留一条入口」：QR 栏存在才出现；栏关着就彻底没有，不会浮在聊天框上。`,
+「魔杖菜单留一条入口」：它会跟别的扩展按钮一起排在魔法棒里，生成中顺便报「已保存 N 字」。关掉就整条不出现。`,
     },
     {
         title: '续写和存储',
@@ -2111,7 +2105,7 @@ const SETTINGS_HTML = `
                     <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动接回</span></label>
                     <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式</span></label>
                     <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>通知状态栏类扩展</span></label>
-                    <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>快捷栏里留一条入口</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>魔杖菜单留一条入口</span></label>
                     <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>续写后直接发送</span></label>
                 </div>
             </div>
@@ -2178,7 +2172,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.14</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.15</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
@@ -2528,11 +2522,7 @@ function mountSettings(retry = 0) {
     });
     el('gg-set-badge').addEventListener('change', (event) => {
         s.showBadge = Boolean(event.target.checked);
-        if (!s.showBadge) {
-            updateBadge('');
-        } else if (generating) {
-            updateBadge(`生成守护：已保存 ${String(buffer?.text || '').length} 字 · 别刷新`);
-        }
+        updateBadge(generating ? `已保存 ${String(buffer?.text || '').length} 字` : '');
         persistSettings();
     });
     const bindNumber = (id, key, min, max, fallback, after) => {
@@ -2701,7 +2691,7 @@ function initOnce() {
     document.addEventListener('click', guardExtensionUpdateClick, true);
 
     ensureUI();
-    watchQuickBar();
+    watchWandMenu();
     registerSlashCommand();
     applyTheme();
     mountSettings();

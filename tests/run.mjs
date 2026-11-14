@@ -143,8 +143,11 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="chat"></div>
         <div id="send_form">
-            <div id="qr--bar" class="flex-container flexGap5"><div class="qr--buttons"></div></div>
+            <div id="leftSendForm"><div id="extensionsMenuButton"></div></div>
             <textarea id="send_textarea"></textarea>
+        </div>
+        <div id="extensionsMenu">
+            <div id="st_native_wand_container" class="extension_container"></div>
         </div>
         <div id="extensions_settings2"></div>
         <div id="continue_button"></div>
@@ -157,7 +160,7 @@ function createWorld({ chat, chatId = 'ChatA', name2 = '沈砚' } = {}) {
     defineGlobal('Event', window.Event);
     defineGlobal('HTMLElement', window.HTMLElement);
     defineGlobal('localStorage', storage);
-    defineGlobal('MutationObserver', window.MutationObserver);
+    
     defineGlobal('toastr', {
         info: (m) => console.log(`    [toast:info] ${m}`),
         success: (m) => console.log(`    [toast:success] ${m}`),
@@ -279,10 +282,9 @@ async function scenarioReloadAndResume() {
     await signalReady(ctx);
 
     await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
-    const b1 = document.getElementById('gg-badge');
-    ok('生成开始后出现状态条', b1 && !b1.classList.contains('gg-hidden'));
-    ok('状态条挂在 QR 快捷栏里，不在聊天框上方',
-        Boolean(b1 && b1.closest('#qr--bar')), b1?.parentElement?.id || '(无父容器)');
+    const b1 = document.getElementById('gg-wand-entry');
+    ok('魔杖菜单里有那一条', Boolean(b1 && b1.closest('#extensionsMenu')));
+    ok('聊天框上方不留任何浮层', !document.getElementById('gg-badge'));
 
     // 模拟 beforeunload：生成中应该被拦下
     const unload = new ctx.__window.Event('beforeunload', { cancelable: true });
@@ -292,7 +294,8 @@ async function scenarioReloadAndResume() {
     for (const token of ['她抬起头', '她抬起头，', '她抬起头，看着你笑了。', '她抬起头，看着你笑了。\n*“等很久了吧。”*']) {
         await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, token);
     }
-    eq('徽标显示累计字数', document.getElementById('gg-badge-text').textContent, `生成守护：已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字 · 别刷新`);
+    eq('那一条顺便报累计字数', document.getElementById('gg-wand-state').textContent,
+        `已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字`);
 
     // 页面被杀（pagehide 时同步落盘）
     pagehide(ctx);
@@ -356,9 +359,9 @@ async function scenarioNormalCompletionKeepsNothing() {
 
     eq('正常完成后不残留草稿', readSnapshots().length, 0);
     ok('正常完成后不弹恢复卡片', !panelVisible());
-    ok('状态条回到入口名，不再报字数',
-        document.getElementById('gg-badge')?.textContent?.trim() === '生成守护',
-        document.getElementById('gg-badge')?.textContent || '');
+    ok('那一条的字数小字清空了',
+        document.getElementById('gg-wand-state')?.textContent === '',
+        document.getElementById('gg-wand-state')?.textContent || '');
 
     const unloadAfter = new ctx.__window.Event('beforeunload', { cancelable: true });
     ctx.__window.dispatchEvent(unloadAfter);
@@ -1525,33 +1528,48 @@ async function scenarioPostFinishGuard() {
     pagehide(ctx);
 }
 
-/* 28：入口只在 QR 快捷栏里。她明确说过「聊天框上面挂图标没必要」，
-   所以栏在就挂进去、栏不在就彻底不出现，绝不退回 body 上浮着。 */
-async function scenarioQuickBarPlacement() {
-    console.log('\n[28] 入口只在 QR 快捷栏里，栏没了就彻底不出现');
+/* 28：入口只放魔杖菜单。她明确说过「聊天框上面挂图标没必要」，也不要单独做脚本，
+   那就回到酒馆自己的魔法棒：跟别的扩展按钮排在一层，收起时不占版面。 */
+async function scenarioWandEntry() {
+    console.log('\n[28] 入口只在魔杖菜单里，跟别的扩展按钮排在一起');
     captureConsole();
     storage.clear();
     const ctx = createWorld({ chat: makeChat() });
     await bootExtension();
     await signalReady(ctx);
 
-    const badge = document.getElementById('gg-badge');
-    ok('启动后快捷栏里就有「生成守护」这一条', Boolean(badge && badge.closest('#qr--bar')),
-        badge?.parentElement?.className || '(无父容器)');
-    eq('平时文案就是入口名', badge?.textContent?.trim(), '生成守护');
-    ok('点它不会报错（酒馆原生抽屉会自己接住这个 click）', (() => {
+    const item = document.getElementById('gg-wand-entry');
+    ok('启动后魔杖菜单里就有「生成守护」', Boolean(item && item.closest('#extensionsMenu')),
+        item?.parentElement?.className || '(无父容器)');
+    eq('它落在 extension_container 里（酒馆原生按钮也是这一层）',
+        item?.parentElement?.className, 'extension_container');
+    eq('名字就四个字', item?.querySelector('.gg-wand-name')?.textContent?.trim(), '生成守护');
+    ok('带着跟别的扩展一样的图标位', Boolean(item?.querySelector('.extensionsMenuExtensionButton')));
+    ok('点它不会报错', (() => {
         try {
-            badge.click();
+            item.click();
             return true;
         } catch (error) {
             return false;
         }
     })());
 
-    // 她关掉 QR → 栏被拆掉 → 我们的图标也跟着走人
-    document.getElementById('qr--bar').remove();
-    await sleep(220);
-    ok('QR 栏没了，页面上也不再有我们的图标', !document.getElementById('gg-badge'));
+    // 那个开关关掉 → 整条藏起来
+    const toggle = document.getElementById('gg-set-badge');
+    toggle.checked = false;
+    toggle.dispatchEvent(new ctx.__window.Event('change'));
+    await sleep(60);
+    eq('关掉开关就不显示', item.style.display, 'none');
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new ctx.__window.Event('change'));
+    await sleep(60);
+    ok('打开开关又回来', item.style.display !== 'none');
+
+    // 魔杖菜单还没被酒馆建出来时，绝不往 body 上硬塞一个浮层
+    document.getElementById('gg-wand-entry').remove();
+    document.getElementById('extensionsMenu').remove();
+    ok('菜单不在，页面上就没有这条', !document.getElementById('gg-wand-entry'));
     ok('恢复卡片仍然可用（只收入口，不动功能）', Boolean(document.getElementById('gg-panel')));
 
     delete extensionSettingsStub['generation-guardian'];
@@ -1704,7 +1722,7 @@ async function main() {
     await scenarioEmptyPlaceholder();
     await scenarioFillOnlyByDefault();
     await scenarioPostFinishGuard();
-    await scenarioQuickBarPlacement();
+    await scenarioWandEntry();
     await scenarioPanelFolds();
     await scenarioGuide();
 
