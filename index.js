@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.13';
+const VERSION = '1.3.14';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1208,17 +1208,54 @@ function syncBadge() {
     }
 }
 
-/** 点快捷栏里的徽标 → 跳回扩展页并把抽屉展开 */
-function openSettingsDrawer() {
+/**
+ * 跳到扩展页并把抽屉展开。她可能正停在聊天页，所以先替她把「扩展」那条抽屉打开
+ * —— 用酒馆自己的 drawer 结构（.drawer > .drawer-toggle / .drawer-content.closedDrawer）。
+ */
+function openSettingsDrawer(retry = 0) {
+    try {
+        const host = document.getElementById('extensions_settings2');
+        const drawer = host?.closest('.drawer-content');
+        if (drawer && drawer.classList.contains('closedDrawer')) {
+            drawer.parentElement?.querySelector('.drawer-toggle')?.click();
+        }
+    } catch (error) {
+        // 抽屉结构哪天变了也不挡路，下面直接找我们自己的面板
+    }
+
     const root = el('gg-settings');
     if (!root) {
+        if (retry < 5) {
+            setTimeout(() => openSettingsDrawer(retry + 1), 240);
+        }
         return;
     }
+
     const content = root.querySelector('.inline-drawer-content');
     if (content && (content.style.display === 'none' || content.style.display === '')) {
         root.querySelector('.inline-drawer-header')?.click();
     }
-    root.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    const scroll = () => {
+        try {
+            root.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } catch (error) {
+            console.debug(TAG, error);
+        }
+    };
+    scroll();
+    // 抽屉有自己的开合动画，等它落定再滚一次
+    setTimeout(scroll, 420);
+}
+
+/**
+ * 给 QR 助手脚本按钮留的一个入口。
+ * 告诉她「面板在哪、怎么开」比弹一张可能已经过期的卡片更靠谱，
+ * 所以这里只负责把她送到设置面板，不猜有没有草稿。
+ */
+function openPanel() {
+    openSettingsDrawer();
+    return true;
 }
 
 /* QR 栏会被酒馆和酒馆助手反复重建，徽标得跟着重新归位 */
@@ -1879,46 +1916,100 @@ const SETTINGS_HTML = `
 </div>
 <div class="inline-drawer-content">
     <div class="gg-sheet">
-        <div class="gg-sub">主题</div>
-        <div class="gg-themes" id="gg-themes"></div>
-
-        <div class="gg-diamond">◆</div>
-        <div class="gg-sub">开关</div>
-        <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>在 QR 快捷栏里留一条「生成守护」（生成中顺便报「已保存 N 字」，点它打开本面板）</span></label>
-        <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」后直接替我发出去（默认关：只把指令放进输入框，你可以先补几句再按发送）</span></label>
-
-        <div class="gg-diamond">◆</div>
-        <div class="gg-sub">续写指令</div>
-        <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
-        <div class="gg-row">
-            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用主线指令</button>
-            <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
+        <div class="gg-fold" id="gg-theme-fold" aria-expanded="false">
+            <button type="button" class="gg-fold-head" id="gg-fold-head">
+                <span class="gg-fold-tag">主题</span>
+                <span class="gg-fold-current" id="gg-fold-current">杏仁白</span>
+                <span class="gg-fold-dots" id="gg-fold-dots" aria-hidden="true"></span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <div class="gg-themes" id="gg-themes"></div>
+                </div>
+            </div>
         </div>
-        <div class="gg-hint">点「续写」时发出去的就是这一条，可以改成自己习惯的说法。</div>
 
-        <div class="gg-diamond">◆</div>
-        <div class="gg-sub">存储</div>
-        <label class="gg-check gg-inline"><span>最多保留</span><input type="number" class="text_pole gg-num" id="gg-set-max" min="1" max="50" step="1"><span>条草稿</span></label>
-        <label class="gg-check gg-inline"><span>保留</span><input type="number" class="text_pole gg-num" id="gg-set-days" min="1" max="30" step="1"><span>天</span></label>
-        <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没新字就提示（0 关掉）</span></label>
+        <div class="gg-fold gg-fold-plain" id="gg-switch-fold" aria-expanded="true">
+            <button type="button" class="gg-fold-head" id="gg-switch-head">
+                <span class="gg-fold-tag">开关</span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <label class="gg-check"><input type="checkbox" id="gg-set-enabled"><span>启用插件</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-block"><span>生成中拦截刷新 / 关闭页面</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-ops"><span>生成中拦住会刷新的扩展操作（启用 / 禁用 / 删除 / 清理；更新和换分支不拦）</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-autorestore"><span>被打断时自动补回聊天（不用点「接回」）</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-quiet"><span>安静模式：正常生成完什么都不弹，只有真被打断才出声</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-notify"><span>接回后通知状态栏 / 变量类扩展「这条渲染好了」（本扩展不额外发请求）</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-badge"><span>在 QR 快捷栏里留一条「生成守护」（生成中顺便报「已保存 N 字」，点它打开本面板）</span></label>
+                    <label class="gg-check"><input type="checkbox" id="gg-set-autosend"><span>点「续写」后直接替我发出去（默认关：只把指令放进输入框，你可以先补几句再按发送）</span></label>
+                </div>
+            </div>
+        </div>
 
-        <div class="gg-diamond">◆</div>
-        <div class="gg-sub">兼容状态 <span class="gg-count" id="gg-compat-count">0</span></div>
-        <div id="gg-compat-list" class="gg-snap-list"></div>
-        <div class="gg-hint">按「实际装着的目录」检测（不看设置里残留的旧 key）。这些扩展都有自己的定时器在刷新页面，拿不到它们的 timer，所以：刷新前先把草稿钉进存储，回来再自动补回。生成中点它们的「更新」会被我们拦住。</div>
+        <div class="gg-fold gg-fold-plain" id="gg-prompt-fold" aria-expanded="false">
+            <button type="button" class="gg-fold-head" id="gg-prompt-head">
+                <span class="gg-fold-tag">续写指令</span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <textarea id="gg-set-prompt" class="text_pole gg-prompt" rows="3"></textarea>
+                    <div class="gg-row">
+                        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-main">用主线指令</button>
+                        <button type="button" class="gg-btn gg-mini" id="gg-set-preset-extra">用番外指令</button>
+                    </div>
+                    <div class="gg-hint">点「续写」时发出去的就是这一条，可以改成自己习惯的说法。</div>
+                </div>
+            </div>
+        </div>
 
-        <div class="gg-diamond">◆</div>
-        <div class="gg-sub">已保存草稿 <span class="gg-count" id="gg-snap-count">0</span></div>
-        <div id="gg-snap-list" class="gg-snap-list"></div>
-        <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
-        <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
-        <div class="gg-ver">v<span id="gg-ver">1.3.13</span> · smyz1987 · MIT</div>
+        <div class="gg-fold gg-fold-plain" id="gg-storage-fold" aria-expanded="false">
+            <button type="button" class="gg-fold-head" id="gg-storage-head">
+                <span class="gg-fold-tag">存储</span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <label class="gg-check gg-inline"><span>最多保留</span><input type="number" class="text_pole gg-num" id="gg-set-max" min="1" max="50" step="1"><span>条草稿</span></label>
+                    <label class="gg-check gg-inline"><span>保留</span><input type="number" class="text_pole gg-num" id="gg-set-days" min="1" max="30" step="1"><span>天</span></label>
+                    <label class="gg-check gg-inline"><span>卡住</span><input type="number" class="text_pole gg-num" id="gg-set-stall" min="0" max="600" step="5"><span>秒没新字就提示（0 关掉）</span></label>
+                </div>
+            </div>
+        </div>
+
+        <div class="gg-fold gg-fold-plain" id="gg-compat-fold" aria-expanded="false">
+            <button type="button" class="gg-fold-head" id="gg-compat-head">
+                <span class="gg-fold-tag">兼容状态</span>
+                <span class="gg-count" id="gg-compat-count">0</span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <div id="gg-compat-list" class="gg-snap-list"></div>
+                    <div class="gg-hint">按「实际装着的目录」检测（不看设置里残留的旧 key）。这些扩展都有自己的定时器在刷新页面，拿不到它们的 timer，所以：刷新前先把草稿钉进存储，回来再自动补回。生成中点它们的「更新」会被我们拦住。</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="gg-fold gg-fold-plain" id="gg-snap-fold" aria-expanded="false">
+            <button type="button" class="gg-fold-head" id="gg-snap-head">
+                <span class="gg-fold-tag">已保存草稿</span>
+                <span class="gg-count" id="gg-snap-count">0</span>
+                <i class="gg-fold-chev fa-solid fa-chevron-down"></i>
+            </button>
+            <div class="gg-fold-body">
+                <div class="gg-fold-inner">
+                    <div id="gg-snap-list" class="gg-snap-list"></div>
+                    <button type="button" id="gg-btn-clear" class="gg-btn gg-danger gg-full">清空全部草稿</button>
+                    <div class="gg-hint">草稿存在本机浏览器里，只在这个设备、这个浏览器可见。手机被系统杀掉重载，也靠它捡回来。</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="gg-ver">v<span id="gg-ver">1.3.14</span> · smyz1987 · MIT</div>
     </div>
 </div>`;
 
@@ -2132,6 +2223,29 @@ function mountSettings(retry = 0) {
     el('gg-ver').textContent = VERSION;
     renderCompatSection();
 
+    /* 收起那一行里的小巧思：八颗点就是八套配色本身，横着排成一条调色盘；
+       当前那套的点长出一圈同色环并放大一点 —— 不展开也知道现在是哪一套。 */
+    const renderThemeFold = () => {
+        const current = themeKey();
+        const theme = THEMES[current];
+        const label = el('gg-fold-current');
+        if (label) {
+            label.textContent = theme?.label || '';
+        }
+        const dots = el('gg-fold-dots');
+        if (!dots) {
+            return;
+        }
+        dots.textContent = '';
+        for (const [key, item] of Object.entries(THEMES)) {
+            const dot = document.createElement('span');
+            dot.className = 'gg-fold-dot';
+            dot.style.setProperty('--d', item.swatches[1]);
+            dot.dataset.active = String(key === current);
+            dots.appendChild(dot);
+        }
+    };
+
     const renderThemes = () => {
         const host = el('gg-themes');
         if (!host) {
@@ -2139,11 +2253,14 @@ function mountSettings(retry = 0) {
         }
         host.textContent = '';
         const current = themeKey();
+        let index = 0;
         for (const [key, theme] of Object.entries(THEMES)) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'gg-theme';
             btn.dataset.theme = key;
+            btn.style.setProperty('--gg-i', String(index));
+            index += 1;
             btn.setAttribute('aria-pressed', String(key === current));
             btn.title = `${theme.label} / ${theme.en}`;
 
@@ -2165,11 +2282,30 @@ function mountSettings(retry = 0) {
                 persistSettings();
                 applyTheme();
                 renderThemes();
+                renderThemeFold();
             });
             host.appendChild(btn);
         }
     };
     renderThemes();
+    renderThemeFold();
+
+    // 六块内容全部折成一行，只有「开关」默认展开 —— 最常用的那几项不用多点一下
+    for (const [rootId, headId] of [
+        ['gg-theme-fold', 'gg-fold-head'],
+        ['gg-switch-fold', 'gg-switch-head'],
+        ['gg-prompt-fold', 'gg-prompt-head'],
+        ['gg-storage-fold', 'gg-storage-head'],
+        ['gg-compat-fold', 'gg-compat-head'],
+        ['gg-snap-fold', 'gg-snap-head'],
+    ]) {
+        const root = el(rootId);
+        const head = el(headId);
+        head?.addEventListener('click', () => {
+            const open = root?.getAttribute('aria-expanded') === 'true';
+            root?.setAttribute('aria-expanded', String(!open));
+        });
+    }
 
     el('gg-set-enabled').addEventListener('change', (event) => {
         s.enabled = Boolean(event.target.checked);
@@ -2408,6 +2544,8 @@ function initOnce() {
         liveDraft: () => (buffer ? String(buffer.text || '') : ''),
         isGenerating: () => activelyGenerating(),
         unloadMessage: unloadMessage,
+        openPanel: openPanel,
+        openSettings: openSettingsDrawer,
         scan: scanForRecoverySafe,
         clear: () => writeAll([]),
         copy: copyText,

@@ -1558,6 +1558,61 @@ async function scenarioQuickBarPlacement() {
     restoreConsole();
 }
 
+/* 29：六块内容各折成一行。她的原话是「那么长一串东西拖着像什么样子」，
+   所以默认只看得到六行标题 + 一行打开着的开关，其余要摊开才显。 */
+async function scenarioPanelFolds() {
+    console.log('\n[29] 六块内容折成六行，只有开关默认展开');
+    captureConsole();
+    storage.clear();
+    const ctx = createWorld({ chat: makeChat() });
+    await bootExtension();
+    await signalReady(ctx);
+
+    const folds = ['gg-theme-fold', 'gg-switch-fold', 'gg-prompt-fold', 'gg-storage-fold', 'gg-compat-fold', 'gg-snap-fold'];
+    eq('六块都在', folds.filter((id) => document.getElementById(id)).length, 6);
+
+    const heads = folds.map((id) => document.querySelector(`#${id} .gg-fold-head`));
+    ok('每一块都有可点的标题行', heads.every(Boolean));
+    const tags = heads.map((head) => head?.querySelector('.gg-fold-tag')?.textContent?.trim());
+    eq('标题顺序：主题 / 开关 / 续写指令 / 存储 / 兼容状态 / 已保存草稿',
+        tags.join('|'), '主题|开关|续写指令|存储|兼容状态|已保存草稿');
+
+    const expanded = folds.map((id) => document.getElementById(id)?.getAttribute('aria-expanded'));
+    eq('默认只有开关是打开的', expanded.join('|'), 'false|true|false|false|false|false');
+
+    // 主题那一行的「小巧思」：收起时也看得出现在用哪套
+    const label = document.getElementById('gg-fold-current')?.textContent?.trim();
+    eq('收起行里写着当前主题名', label, '杏仁白');
+    const dots = document.querySelectorAll('#gg-fold-dots .gg-fold-dot');
+    eq('一排八颗点，就是八套配色', dots.length, 8);
+    eq('当前那颗带 active 标记', document.querySelectorAll('#gg-fold-dots .gg-fold-dot[data-active="true"]').length, 1);
+    ok('点上有各自的主题色', Boolean(dots[0]?.style.getPropertyValue('--d')));
+
+    // 点标题行 → 摊开；再点 → 收回去
+    const themeHead = document.querySelector('#gg-theme-fold .gg-fold-head');
+    themeHead.click();
+    eq('点一下就摊开', document.getElementById('gg-theme-fold').getAttribute('aria-expanded'), 'true');
+    themeHead.click();
+    eq('再点一下收回去', document.getElementById('gg-theme-fold').getAttribute('aria-expanded'), 'false');
+
+    // 换一套主题 → 收起行里的名字和那颗环跟着走
+    document.querySelector('#gg-themes [data-theme="lotus"]').click();
+    await sleep(60);
+    eq('换完主题，收起行的名字跟着换', document.getElementById('gg-fold-current')?.textContent?.trim(), '莲子白');
+    eq('环也换到新的那一颗上', document.querySelector('#gg-fold-dots [data-active="true"]')?.style.getPropertyValue('--d').trim(), '#a9a1b0');
+
+    // 兼容状态、草稿的计数挂在收起的标题上，不摊开也数得清
+    ok('兼容状态带着计数', Boolean(document.querySelector('#gg-compat-head .gg-count')));
+    ok('已保存草稿带着计数', Boolean(document.querySelector('#gg-snap-head .gg-count')));
+
+    // 老结构不该再留在面板里
+    eq('◆ 那种分隔符已经清干净了', document.querySelectorAll('#gg-settings .gg-diamond').length, 0);
+    eq('.gg-sub 那种平铺小标题也清干净了', document.querySelectorAll('#gg-settings .gg-sub').length, 0);
+
+    delete extensionSettingsStub['generation-guardian'];
+    restoreConsole();
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1590,6 +1645,7 @@ async function main() {
     await scenarioFillOnlyByDefault();
     await scenarioPostFinishGuard();
     await scenarioQuickBarPlacement();
+    await scenarioPanelFolds();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

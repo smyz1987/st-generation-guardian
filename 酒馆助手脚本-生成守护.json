@@ -1,0 +1,22 @@
+{
+  "type": "script",
+  "enabled": true,
+  "name": "生成守护",
+  "id": "8f3c1a52-7b64-4d1e-9c0a-2d5b6e7f8a91",
+  "content": "// 生成守护 —— QR 助手快捷按钮：点一下直接跳到扩展页，并把生成守护的面板展开\neventOn(getButtonEvent('生成守护'), () => {\n  const W = window.parent || window;\n  const gg = W.GenerationGuardian;\n  if (!gg) {\n    (W.toastr || window.toastr)?.warning?.('没找到「生成守护」扩展，先在酒馆里把它装上');\n    return;\n  }\n  if (typeof gg.openPanel === 'function') {\n    gg.openPanel();\n  } else {\n    (W.toastr || window.toastr)?.info?.('扩展版本旧了，更新到 1.3.14 以上再点我');\n  }\n});\n",
+  "info": "点一下就跳到扩展页并展开「生成守护」面板。扩展本体没装的话会提示你先装。",
+  "button": {
+    "enabled": true,
+    "buttons": [
+      {
+        "name": "生成守护",
+        "visible": true
+      }
+    ]
+  },
+  "data": {},
+  "export_with": {
+    "data": true,
+    "button": true
+  }
+}

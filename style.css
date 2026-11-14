@@ -618,27 +618,190 @@ body.gg-theme-lotus,
     user-select: none;
 }
 
-/* ---------- 主题色卡：一块彩色底板，八张浅卡 ---------- */
+/* ---------- 折叠：六块内容各折成一行 ---------- */
 
-/* 全屏唯一一块大面积彩色就在这里：第一节「主题」是一条彩色底板，
-   八张浅色卡压在上面。目标是彩色集中成一块，而不是每个设置项各一块。 */
-#gg-settings .gg-sub:first-child {
-    margin: 6px 0 0;
-    padding: 10px 12px 8px 13px;
-    border-radius: 10px 10px 0 0;
+/* 面板一打开先看到六行标题，不是一大串东西拖着。点哪行摊开哪行。
+   只有「开关」默认是开的 —— 最常用的那几项不该多点一下。 */
+#gg-settings .gg-fold {
+    border-bottom: 1px solid var(--gg-border);
+}
+
+#gg-settings .gg-fold-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    margin: 0;
+    padding: 11px 2px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--gg-primary);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+#gg-settings .gg-fold-head:hover {
+    background: color-mix(in srgb, var(--gg-primary) 7%, transparent);
+}
+
+#gg-settings .gg-fold-head::before {
+    counter-increment: ggsec;
+    content: counter(ggsec, decimal-leading-zero);
+    flex: 0 0 auto;
+    width: 19px;
+    height: 15px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
     color: var(--gg-ink);
     background: var(--gg-deep);
 }
 
-#gg-settings .gg-sub:first-child::before {
+#gg-settings .gg-fold-chev {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--gg-muted);
+    transition: transform 0.32s cubic-bezier(0.22, 0.8, 0.3, 1), color 0.2s ease;
+}
+
+#gg-settings .gg-fold[aria-expanded="true"] .gg-fold-chev {
+    transform: rotate(180deg);
+    color: var(--gg-primary);
+}
+
+/* 0fr → 1fr：高度自己算出来，不用写死 max-height，也不会有半截裁断 */
+#gg-settings .gg-fold-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.34s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+#gg-settings .gg-fold[aria-expanded="true"] .gg-fold-body {
+    grid-template-rows: 1fr;
+}
+
+#gg-settings .gg-fold-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* ---------- 主题那一条：深色托盘盖起来 ---------- */
+
+/* 全屏唯一一块大面积彩色还是它：收起时是一个完整的圆角托盘，
+   展开时只留上面两个角、下面接八张浅卡 —— 「盖子掀开」就这一下。 */
+#gg-settings #gg-theme-fold .gg-fold-head {
+    margin: 4px 0 0;
+    padding: 10px 12px 9px 13px;
+    border-radius: 10px;
+    color: var(--gg-ink);
+    background: var(--gg-deep);
+    letter-spacing: 0.02em;
+    transition: background 0.15s ease, border-radius 0.3s ease;
+}
+
+#gg-settings #gg-theme-fold[aria-expanded="true"] .gg-fold-head {
+    border-radius: 10px 10px 0 0;
+}
+
+#gg-settings #gg-theme-fold .gg-fold-head::before {
     color: var(--gg-deep);
     background: var(--gg-base);
 }
 
-#gg-settings .gg-sub:first-child::after {
-    background: none;
+#gg-settings #gg-theme-fold .gg-fold-head:hover {
+    background: color-mix(in srgb, var(--gg-deep) 88%, var(--gg-base));
 }
 
+#gg-settings #gg-theme-fold .gg-fold-chev {
+    color: var(--gg-base);
+}
+
+#gg-settings #gg-theme-fold .gg-fold-tag {
+    font-size: 11px;
+    color: var(--gg-ink);
+}
+
+/* 当前那套的名字，贴着八颗点 */
+#gg-settings .gg-fold-current {
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: normal;
+    color: var(--gg-base);
+    flex: 0 0 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 34%;
+}
+
+/* 八颗点 = 八套配色本身，横着排成一条调色盘；不用展开就知道有哪几套、
+   现在是哪一套（当前那颗长出一圈同色环、还大一号）。 */
+#gg-settings .gg-fold-dots {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    flex: 0 1 auto;
+}
+
+#gg-settings .gg-fold-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--d, transparent);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.28);
+    opacity: 0.62;
+    transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.3),
+        opacity 0.24s ease, box-shadow 0.24s ease, width 0.24s ease, height 0.24s ease;
+}
+
+#gg-settings .gg-fold-dot[data-active="true"] {
+    width: 9px;
+    height: 9px;
+    opacity: 1;
+    box-shadow:
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
+        0 0 0 1.5px color-mix(in srgb, var(--gg-deep) 70%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--d) 58%, transparent);
+}
+
+/* 收起时它自己就是一块完整的托盘，不再多一条底线 */
+#gg-settings #gg-theme-fold {
+    border-bottom: 0;
+    margin-bottom: 8px;
+}
+
+/* 展开时八张卡从左到右依次浮上来；收起时内容被 0fr 裁掉，不用管 */
+#gg-settings #gg-theme-fold[aria-expanded="true"] .gg-theme {
+    animation: gg-theme-in 0.36s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    animation-delay: calc(var(--gg-i, 0) * 26ms);
+}
+
+@keyframes gg-theme-in {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #gg-settings #gg-theme-fold[aria-expanded="true"] .gg-theme {
+        animation: none;
+    }
+}
+
+/* ---------- 主题色卡：一块彩色底板，八张浅卡 ---------- */
+
+/* 展开后八张浅卡压在同一块深色托盘上，彩色集中成一块，而不是每个设置项各一块。 */
 #gg-settings .gg-themes {
     display: flex;
     flex-wrap: wrap;
@@ -881,6 +1044,19 @@ body.gg-theme-lotus,
     font-size: 11px;
     letter-spacing: 0.06em;
     color: var(--gg-primary);
+}
+
+/* 计数挂在折叠头上时做成一枚小徽章，一眼能扫到里面有几条 */
+#gg-settings .gg-fold-head .gg-count {
+    flex: 0 0 auto;
+    min-width: 16px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    text-align: center;
+    color: var(--gg-text);
+    background: color-mix(in srgb, var(--gg-primary) 14%, transparent);
 }
 
 /* ---------- 列表 ---------- */
