@@ -92,8 +92,12 @@ body.gg-theme-lotus,
     --gg-text: #26221f;
     --gg-text-2: #3a3531;
     --gg-muted: #6d6660;
-    /* 强调字/标签/图标：主色本身，不做任何调淡 */
+    /* 强调字/标签/图标：主色本身 */
     --gg-primary: var(--gg-deep);
+    /* 11px 这种小字用纯主色压在浅底上会偏淡（实测对比度只有 2.9~3.1），
+       所以小字另用一种"主色加深"的版本：色相还是那个主色，只是压暗了，
+       不是往下混底色 —— 混底色才会脏。 */
+    --gg-primary-ink: color-mix(in srgb, var(--gg-deep) 82%, #1e1a18);
     --gg-secondary: color-mix(in srgb, var(--gg-deep) 84%, #fffdf8);
     --gg-accent: var(--gg-deep);
     --gg-border: color-mix(in srgb, var(--gg-deep) 32%, transparent);
@@ -385,7 +389,7 @@ body.gg-theme-lotus,
 
 #gg-panel .gg-btn.gg-danger,
 #gg-settings .gg-btn.gg-danger {
-    color: var(--gg-danger);
+    color: color-mix(in srgb, var(--gg-danger) 80%, #1e1a18);
     border-color: color-mix(in srgb, var(--gg-danger) 38%, transparent);
     background: color-mix(in srgb, var(--gg-danger) 8%, transparent);
 }
@@ -637,7 +641,7 @@ body.gg-theme-lotus,
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
-    color: var(--gg-primary);
+    color: var(--gg-primary-ink);
     text-align: left;
     cursor: pointer;
     transition: background 0.15s ease;
@@ -674,7 +678,7 @@ body.gg-theme-lotus,
 
 #gg-settings .gg-fold[aria-expanded="true"] .gg-fold-chev {
     transform: rotate(180deg);
-    color: var(--gg-primary);
+    color: var(--gg-primary-ink);
 }
 
 /* 0fr → 1fr：高度自己算出来，不用写死 max-height，也不会有半截裁断 */
@@ -736,7 +740,7 @@ body.gg-theme-lotus,
     font-size: 11.5px;
     font-weight: 500;
     letter-spacing: normal;
-    color: var(--gg-base);
+    color: var(--gg-ink);
     flex: 0 0 auto;
     white-space: nowrap;
     overflow: hidden;
