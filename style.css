@@ -1366,3 +1366,129 @@ body.gg-theme-lotus,
         min-height: 38px;
     }
 }
+
+
+/* ---------- 设置面板的弹窗 ---------- */
+
+/* 点魔法棒那一条，面板自己浮上来 —— 不把她赶到「扩展」页去翻抽屉。
+   整块 #gg-settings 会临时搬进 #gg-modal-body；外侧这层只负责居中、遮罩、宽高上限和滚动。 */
+.gg-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 3100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(20, 18, 22, 0.42);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+}
+
+.gg-modal.gg-hidden {
+    display: none;
+}
+
+.gg-modal-card {
+    display: flex;
+    flex-direction: column;
+    width: min(548px, 100%);
+    max-height: min(86dvh, 820px);
+    border-radius: 16px;
+    color: var(--gg-text);
+    background: radial-gradient(128% 92% at 50% 0%,
+        color-mix(in srgb, var(--gg-card) 96%, transparent) 0%,
+        color-mix(in srgb, var(--gg-card) 90%, transparent) 48%,
+        color-mix(in srgb, var(--gg-card) 68%, transparent) 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.88),
+        inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
+        0 1px 2px rgba(20, 16, 14, 0.05),
+        0 24px 60px color-mix(in srgb, var(--gg-primary) 24%, transparent);
+    -webkit-backdrop-filter: blur(30px) saturate(1.55) brightness(1.06);
+    backdrop-filter: blur(30px) saturate(1.55) brightness(1.06);
+    overflow: hidden;
+}
+
+.gg-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex: 0 0 auto;
+    padding: 14px 16px 10px;
+}
+
+.gg-modal-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.gg-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 14px 14px;
+}
+
+/* 搬进来的 #gg-settings：酒馆 inline-drawer 那层壳在这里多余（标题上面已经有了），
+   而且抽屉若是收着的，里面的 sheet 会被一起藏起来 —— 这里一律摊开。 */
+#gg-modal-body #gg-settings {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+#gg-modal-body #gg-settings .inline-drawer-header {
+    display: none !important;
+}
+
+#gg-modal-body #gg-settings .inline-drawer-content {
+    display: block !important;
+    max-height: none !important;
+    opacity: 1 !important;
+    overflow: visible !important;
+}
+
+/* 卡片本身就是玻璃了，sheet 再叠一层会发脏：在弹窗里把它降成纯内容层 */
+#gg-modal-body #gg-settings .gg-sheet {
+    margin-top: 0;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+#gg-modal-body #gg-settings .gg-sheet::before,
+#gg-modal-body #gg-settings .gg-sheet::after {
+    display: none;
+}
+
+@media (max-width: 700px) {
+    .gg-modal {
+        padding: 0;
+        align-items: flex-end;
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: rgba(20, 18, 22, 0.48);
+    }
+
+    .gg-modal-card {
+        width: 100%;
+        max-height: 90dvh;
+        border-radius: 16px 16px 0 0;
+        -webkit-backdrop-filter: blur(14px) saturate(1.4);
+        backdrop-filter: blur(14px) saturate(1.4);
+    }
+
+    .gg-modal-head {
+        padding: 13px 14px 8px;
+    }
+
+    .gg-modal-body {
+        padding: 0 8px calc(10px + env(safe-area-inset-bottom));
+    }
+}

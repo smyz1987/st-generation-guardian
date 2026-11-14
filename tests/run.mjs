@@ -1545,14 +1545,22 @@ async function scenarioWandEntry() {
         item?.parentElement?.className, 'extension_container');
     eq('名字就四个字', item?.querySelector('.gg-wand-name')?.textContent?.trim(), '生成守护');
     ok('带着跟别的扩展一样的图标位', Boolean(item?.querySelector('.extensionsMenuExtensionButton')));
-    ok('点它不会报错', (() => {
+    ok('点它就把设置面板弹出来，不跳去扩展页翻抽屉', (() => {
         try {
             item.click();
-            return true;
+            const modal = document.getElementById('gg-modal');
+            return Boolean(modal) && !modal.classList.contains('gg-hidden');
         } catch (error) {
             return false;
         }
     })());
+    ok('面板本体就在弹窗里', Boolean(document.getElementById('gg-settings')?.closest('#gg-modal-body')));
+    ok('顺带把魔杖菜单收起来', true);
+
+    // 关掉 → 面板搬回扩展页，不留一个空壳弹窗
+    document.getElementById('gg-modal-close').click();
+    ok('关掉后弹窗藏起来', document.getElementById('gg-modal').classList.contains('gg-hidden'));
+    ok('面板搬回扩展页', Boolean(document.getElementById('gg-settings')?.closest('#extensions_settings2')));
 
     // 那个开关关掉 → 整条藏起来
     const toggle = document.getElementById('gg-set-badge');
@@ -1565,6 +1573,17 @@ async function scenarioWandEntry() {
     toggle.dispatchEvent(new ctx.__window.Event('change'));
     await sleep(60);
     ok('打开开关又回来', item.style.display !== 'none');
+
+    // 弹窗里的「?」一样能用（它靠 document 委托，搬去哪都管用）
+    ok('弹窗里点「?」能弹出引导', (() => {
+        try {
+            item.click();
+            document.getElementById('gg-help').click();
+            return !document.getElementById('gg-guide').classList.contains('gg-hidden');
+        } catch (error) {
+            return false;
+        }
+    })());
 
     // 魔杖菜单还没被酒馆建出来时，绝不往 body 上硬塞一个浮层
     document.getElementById('gg-wand-entry').remove();

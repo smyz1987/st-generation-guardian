@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.15';
+const VERSION = '1.3.16';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1223,41 +1223,84 @@ function closeWandMenu() {
  * 跳到扩展页并把抽屉展开。她可能正停在聊天页，所以先替她把「扩展」那条抽屉打开
  * —— 用酒馆自己的 drawer 结构（.drawer > .drawer-toggle / .drawer-content.closedDrawer）。
  */
-function openSettingsDrawer(retry = 0) {
-    closeWandMenu();
-    try {
-        const host = document.getElementById('extensions_settings2');
-        const drawer = host?.closest('.drawer-content');
-        if (drawer && drawer.classList.contains('closedDrawer')) {
-            drawer.parentElement?.querySelector('.drawer-toggle')?.click();
-        }
-    } catch (error) {
-        // 抽屉结构哪天变了也不挡路，下面直接找我们自己的面板
-    }
+/**
+ * 设置面板的弹窗宿主。
+ * 她原话：「我要做的是面板弹窗啊。不是你现在这种」—— 点魔法棒那一条，面板就该自己浮上来，
+ * 不该把她赶到「扩展」页去翻抽屉。所以整块 #gg-settings 平时挂在扩展页（酒馆惯例），
+ * 打开弹窗时搬到浮层里，关掉再搬回去，DOM 和事件监听一个不重建。
+ */
+let sheetHome = null;
 
+function ensureModal() {
+    let modal = el('gg-modal');
+    if (modal) {
+        return modal;
+    }
+    modal = document.createElement('div');
+    modal.id = 'gg-modal';
+    modal.className = 'gg-modal gg-hidden';
+    modal.innerHTML = `
+        <div class="gg-modal-card" role="dialog" aria-modal="true" aria-labelledby="gg-modal-title">
+            <div class="gg-modal-head">
+                <span class="gg-modal-title" id="gg-modal-title">生成守护</span>
+                <button type="button" class="gg-icon-btn" id="gg-modal-close" title="收起"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="gg-modal-body" id="gg-modal-body"></div>
+        </div>`;
+    document.body.appendChild(modal);
+
+    el('gg-modal-close').addEventListener('click', () => closePanelModal());
+    // 点遮罩空白处也关
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closePanelModal();
+        }
+    });
+    return modal;
+}
+
+function openPanelModal(retry = 0) {
+    closeWandMenu();
+    const modal = ensureModal();
+    const body = el('gg-modal-body');
     const root = el('gg-settings');
-    if (!root) {
+    if (!root || !body) {
+        // 扩展容器可能还没渲染出来，等一下再来（最多约 1.2 秒）
         if (retry < 5) {
-            setTimeout(() => openSettingsDrawer(retry + 1), 240);
+            setTimeout(() => openPanelModal(retry + 1), 240);
         }
         return;
     }
-
-    const content = root.querySelector('.inline-drawer-content');
-    if (content && (content.style.display === 'none' || content.style.display === '')) {
-        root.querySelector('.inline-drawer-header')?.click();
+    if (root.parentElement !== body) {
+        sheetHome = root.parentElement;
+        body.appendChild(root);
+        root.classList.add('gg-in-modal');
     }
+    modal.classList.remove('gg-hidden');
 
-    const scroll = () => {
-        try {
-            root.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        } catch {
-            // 有些环境没有 scrollIntoView（比如测试里的 jsdom），滚不过去也无所谓
-        }
-    };
-    scroll();
-    // 抽屉有自己的开合动画，等它落定再滚一次
-    setTimeout(scroll, 420);
+    // 第一次打开面板就顺手把引导走到，不让她自己去猜
+    if (!settings().guideSeen) {
+        openGuide();
+    }
+}
+
+function closePanelModal() {
+    const modal = el('gg-modal');
+    modal?.classList.add('gg-hidden');
+    const root = el('gg-settings');
+    if (!root) {
+        return;
+    }
+    root.classList.remove('gg-in-modal');
+    const home = sheetHome && document.contains(sheetHome) ? sheetHome : el('extensions_settings2');
+    if (home && root.parentElement !== home) {
+        home.appendChild(root);
+    }
+}
+
+/** 老名字保留：/gg、脚本按钮、window.GenerationGuardian.openSettings 都还走这里 */
+function openSettingsDrawer() {
+    openPanelModal();
 }
 
 /**
@@ -1430,14 +1473,27 @@ const GUIDE_STEPS = [
 
 let guideIndex = 0;
 
-/** 面板底部那个「?」：扩展重载时 panel 会复用，所以绑一次就做个记号 */
+let helpBound = false;
+
+/**
+ * 面板底部那个「?」。
+ * 面板会被搬进弹窗、扩展重载时也会复用旧节点 —— 直接绑在按钮上一次就可能漏，
+ * 所以这里挂在 document 上做委托：只要点的是 #gg-help，不管它现在在谁家里都管用。
+ */
 function bindHelpButton() {
-    const btn = el('gg-help');
-    if (!btn || btn.dataset.ggBound === '1') {
+    if (helpBound) {
         return;
     }
-    btn.dataset.ggBound = '1';
-    btn.addEventListener('click', () => openGuide());
+    helpBound = true;
+    document.addEventListener('click', (event) => {
+        const btn = event.target?.closest?.('#gg-help');
+        if (!btn) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        openGuide();
+    }, true);
 }
 
 function ensureGuide() {
@@ -2172,7 +2228,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.15</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.16</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
