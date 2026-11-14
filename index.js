@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.24';
+const VERSION = '1.3.25';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1236,13 +1236,25 @@ let sheetHome = null;
  * 面板被推进弹窗时，扩展页那一块会暂时空着 —— 她说不许把入口删掉，
  * 所以这里永远留一行「生成守护 · 打开面板」，面板搬回来时它自己让位。
  */
+/**
+ * 扩展页里那条常驻入口。
+ * 面板被推进弹窗时，扩展页那一块会暂时空着 —— 她说不许把入口删掉，
+ * 所以这里永远留一行。
+ * 关键是这一行必须长成酒馆原生扩展条的样子（.inline-drawer-toggle.inline-drawer-header，
+ * 无底色、无边框、padding 5px 0、右侧一个 caret），否则跟别家扩展排在一起，
+ * 一眼就能看出是外来的按钮。
+ */
 function mountExtEntry(host) {
     let entry = el('gg-ext-entry');
     if (!entry) {
         entry = document.createElement('div');
         entry.id = 'gg-ext-entry';
-        entry.className = 'gg-ext-entry';
-        entry.innerHTML = '<button type="button" class="gg-btn gg-mini" id="gg-ext-open">生成守护 · 打开面板</button>';
+        entry.className = 'inline-drawer';
+        entry.innerHTML = `
+            <div class="inline-drawer-toggle inline-drawer-header" id="gg-ext-open" title="生成守护，点开面板">
+                <b>生成守护</b>
+                <div class="inline-drawer-icon fa-solid fa-caret-right fa-fw down"></div>
+            </div>`;
         host.appendChild(entry);
         el('gg-ext-open')?.addEventListener('click', () => openPanelModal());
     }
@@ -2396,7 +2408,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.24</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.25</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>

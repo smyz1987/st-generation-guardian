@@ -961,17 +961,17 @@ body.gg-theme-lotus,
     transition: left 0.18s ease, background 0.18s ease;
 }
 
-/* 选中态用压暗 18% 的主色（--gg-primary-ink），不是原色。
-   原色铺在 34×19 的小胶囊上，八行连起来就是一条糖色带 —— 她看到的就是「浑身棕」。
-   压暗之后是同一个色相的沉静版，面积一样但不再跳。 */
+/* 选中态：轨道只掺 16% 主色，深色留给圆点。
+   先前是主色铺满整颗胶囊，八行并排就成了一条糖色带 —— 她说「浑身棕」指的就是这个。
+   现在轨道是浅的、点才是有分量的，八个摆在一起不再连成一片。 */
 #gg-settings .gg-check input[type="checkbox"]:checked {
-    background: var(--gg-primary-ink) !important;
-    border-color: color-mix(in srgb, var(--gg-primary-ink) 84%, #1e1a18) !important;
+    background: color-mix(in srgb, var(--gg-deep) 16%, var(--gg-input)) !important;
+    border-color: color-mix(in srgb, var(--gg-deep) 52%, transparent) !important;
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked::after {
     left: 18px;
-    background: var(--gg-ink);
+    background: var(--gg-primary-ink);
 }
 
 #gg-settings .gg-check input[type="checkbox"]:focus-visible {
@@ -1412,11 +1412,14 @@ body.gg-theme-lotus,
 /* ---------- 设置面板的弹窗 ---------- */
 
 /* 点魔法棒那一条，面板自己浮上来 —— 不把她赶到「扩展」页去翻抽屉。
-   整块 #gg-settings 会临时搬进 #gg-modal-body；外侧这层只负责居中、遮罩、宽高上限和滚动。 */
+   整块 #gg-settings 会临时搬进 #gg-modal-body；外侧这层只负责居中、遮罩、宽高上限和滚动。
+   z-index 必须压过酒馆的 #extensionsMenu（那个是 29999）：魔杖菜单收起有延迟、
+   手机上还会因为点按顺序把我这边的 closeWandMenu 抖成「再开一次」，
+   层级低一格就会变成「点了一下什么都没发生」。 */
 .gg-modal {
     position: fixed;
     inset: 0;
-    z-index: 3100;
+    z-index: 2147483000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1606,14 +1609,10 @@ body.gg-theme-lotus,
 
 /* 面板被推进弹窗时，扩展页那一块会暂时空着 —— 她说不许把入口删掉，
    所以永远留一行，点它就能把面板叫回来。 */
+/* 扩展页那一行入口：完全沿用酒馆原生的 .inline-drawer 结构，
+   这里不另加底色、边框、内边距 —— 别家扩展旁边并排时它就是普通的一条。 */
 .gg-ext-entry {
-    display: flex;
-    align-items: center;
-    padding: 4px 0;
-}
-
-.gg-ext-entry .gg-btn {
-    width: 100%;
+    display: block;
 }
 
 @media (max-width: 700px) {
