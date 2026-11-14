@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.18';
+const VERSION = '1.3.19';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1647,12 +1647,25 @@ function placeSpotlight(selector) {
         card.dataset.anchored = '0';
         return;
     }
-    const rect = target.getBoundingClientRect();
+    let rect = target.getBoundingClientRect();
     if (!rect || rect.width < 1 || rect.height < 1) {
         spot.style.display = 'none';
         card.dataset.anchored = '0';
         return;
     }
+    // 目标在面板滚动区外面时先把它滚进来 —— 不然洞会挖到视口外，
+    // 气泡也跟着跑到看不见的地方。第七步往后全是折叠块，必须这一步。
+    const vh = window.innerHeight || 800;
+    if (rect.top < 70 || rect.bottom > vh - 70) {
+        try {
+            target.scrollIntoView({ block: 'center', behavior: 'auto' });
+        } catch {
+            /* 老浏览器没有 options 参数，直接滚 */
+            target.scrollIntoView();
+        }
+        rect = target.getBoundingClientRect();
+    }
+
     const pad = 6;
     spot.style.display = '';
     spot.style.top = `${Math.round(rect.top - pad)}px`;
@@ -1663,13 +1676,28 @@ function placeSpotlight(selector) {
     // 气泡优先贴在下面，下面放不下就翻到上面
     const gap = 12;
     const cardH = card.offsetHeight || 150;
-    const vh = window.innerHeight || 800;
     let top = rect.bottom + gap;
     if (top + cardH > vh - 10) {
         top = Math.max(10, rect.top - cardH - gap);
     }
     card.dataset.anchored = '1';
     card.style.top = `${Math.round(top)}px`;
+}
+
+/**
+ * 面板刚弹出来那一下它自己还在播入场动画、滚动位置也没定，
+ * 量一次会差几十像素（实测偏了一行半）。所以连着量几遍，
+ * 等它停稳 —— 洞会平滑地飘到正确那一行，不会先错再跳。
+ */
+function settleSpotlight(selector) {
+    if (!selector) {
+        placeSpotlight(null);
+        return;
+    }
+    placeSpotlight(selector);
+    [140, 320, 620, 980].forEach((delay) => {
+        setTimeout(() => placeSpotlight(selector), delay);
+    });
 }
 
 function renderGuide() {
@@ -1713,13 +1741,13 @@ function renderGuide() {
     if (next) {
         next.textContent = guideIndex >= GUIDE_STEPS.length - 1 ? '开始用' : '下一步';
     }
-    // 这一块要是收着就先掀开（掀完要等一帧才量得到位置）
+    // 这一块要是收着就先掀开（掀完要等一帧才量得到位置）；面板自己也在播
+    // 入场动画 —— 所以交给 settleSpotlight 连量几遍，等它停稳。
     const lit = step.target ? document.querySelector(step.target) : null;
-    if (lit && revealGuideTarget(lit)) {
-        setTimeout(() => placeSpotlight(step.target), 180);
-    } else {
-        placeSpotlight(step.target);
+    if (lit) {
+        revealGuideTarget(lit);
     }
+    settleSpotlight(step.target);
 }
 
 function openGuide() {
@@ -1729,7 +1757,7 @@ function openGuide() {
     renderGuide();
     // 刚显示出来时还没排版，等一帧再量位置
     if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => placeSpotlight(GUIDE_STEPS[guideIndex]?.target));
+        settleSpotlight(GUIDE_STEPS[guideIndex]?.target);
     }
 }
 
@@ -2368,7 +2396,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.18</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.19</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>

@@ -746,8 +746,8 @@ body.gg-theme-lotus,
 }
 
 #gg-settings .gg-fold-dot {
-    width: 6px;
-    height: 16px;
+    width: 7px;
+    height: 18px;
     border-radius: 3px;
     /* 一窄条 = 这个主题的两个色：上段底色、下段主色。
        底色本来就都很浅，只靠主色那八颗圆点分不清谁是谁；
@@ -762,8 +762,8 @@ body.gg-theme-lotus,
 }
 
 #gg-settings .gg-fold-dot[data-active="true"] {
-    width: 8px;
-    height: 20px;
+    width: 9px;
+    height: 22px;
     opacity: 1;
     box-shadow:
         inset 0 0 0 0.5px rgba(0, 0, 0, 0.26),
