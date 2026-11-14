@@ -121,6 +121,14 @@ eventSource.emit(events.CHARACTER_MESSAGE_RENDERED, messageId, 'generation-guard
 
 ## 安装
 
+### 方式零：直接下当前这一版的 zip
+
+```
+https://github.com/smyz1987/st-generation-guardian/archive/refs/tags/v1.3.16.zip
+```
+
+解压后把里面的文件夹整个放进 `third-party/`，刷新页面。想下别的版本就把 `v1.3.16` 换成对应的 tag（`v1.3.14`、`v1.3.13`……）。这一版的快照页：<https://github.com/smyz1987/st-generation-guardian/tree/v1.3.16>
+
 ### 方式一：从 GitHub 直装（PC + 手机通用）
 
 打开 SillyTavern → 顶部「扩展 / Extensions」→ `Install Extension` → 地址填：
@@ -408,7 +416,7 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 结构照酒馆原生模板：`#extensionsMenu > .extension_container > div`。我们自己建一个 `#gg_wand_container.extension_container`，里面放一条 `#gg-wand-entry`。
 - **不另造一套皮肤**：底色、hover、圆角、内边距全部交给酒馆自己的 `#extensionsMenu > .extension_container > div` 规则；CSS 只补排版和生成中那行小字。任何全局美化下它跟别的扩展按钮长得一样。
 - 一条里三样东西：`fa-shield-halved extensionsMenuExtensionButton` 图标位（跟原生扩展按钮同款）、`生成守护` 四个字、右边一行小字 —— 平时空着，生成中报「已保存 N 字」。
-- 点它 → `openSettingsDrawer()`：先点开「扩展」那条抽屉（`#extensions_settings2` 的 `.drawer-content.closedDrawer` 找 `drawer-toggle` 点一下），再摊开本扩展的 `.inline-drawer-content`，滚到面板。顺手把魔杖菜单收起来（`closeWandMenu()`）。
+- 点它的动作 1.3.15 当时是「送去扩展页翻抽屉」，**从 1.3.16 起改成直接弹面板**（见上一段）。
 - 「魔杖菜单留一条入口」这个开关（原 `showBadge`）关掉就整条 `display:none`，不占别人的位置。
 - **`#qr--bar` 那一整套全删了**：`quickBarHost` / `syncBadge` / `watchQuickBar` 和对应的 CSS、移动端那条规则，连 `#gg-badge` 这个 id 都不存在了。
 - `MutationObserver` 也不再需要，测试里的 `defineGlobal('MutationObserver')` 一起撤掉。
