@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.17';
+const VERSION = '1.3.18';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1479,39 +1479,54 @@ function ensureUI() {
 
 const GUIDE_STEPS = [
     {
-        target: '#gg-theme-fold',
-        tag: '主题',
-        body: '八套配色都在这儿。收起的时候，右边那八颗点就是八套本身 —— 当前那套的点大一点、外面套着同色的环，不展开也知道现在是哪一套。点一下盖子掀开，下面是八张卡。',
+        target: '#gg-set-enabled',
+        tag: '它到底在干什么',
+        body: '流式回复写到一半被刷新、被别的扩展刷页、被手机杀掉后台，屏幕上已经吐出来的字会整段消失，API 额度照扣。这个扩展每 0.8 秒把正在写的那一段存进本机，回来帮你接回聊天，不用重发一遍。这一行是总开关，关掉就全都不管了。',
     },
     {
-        target: '#gg-switch-fold',
-        tag: '开关',
-        body: '整块面板只有这一块默认摊开，因为它是主开关：「启用插件」关掉就什么都不管了。下面七个分别管拦刷新、拦会刷页的扩展操作、被打断自动接回、安静模式、通知状态栏类扩展、魔杖菜单留一条入口、续写后直接发出去。',
+        target: '#gg-set-block',
+        tag: '拦手动刷新',
+        body: '「拦截刷新和关闭页面」：生成中按 F5、下拉刷新、关标签页，会先弹一次确认问你要不要真刷，手滑也有一次后悔的机会。生成刚结束的那 12 秒也算在保护期内 —— 那时候字还在内存里、没落盘。',
     },
     {
-        target: '#gg-prompt-fold',
-        tag: '续写指令',
-        body: '点「续写」时自动填进输入框的那段话。两条预设：主线接着上一轮剧情往下写，番外换成上一个番外。觉得不合适就自己改，改了会记住。',
+        target: '#gg-set-ops',
+        tag: '拦别家扩展',
+        body: '「拦住会刷新的扩展操作」：生成中禁用、删除、清理扩展会被拦下来。更新和换分支不拦，那是你自己点的。它认得的那几个：柏宝箱点更新后约 1 秒自己刷、Horae 0.8 秒、Self-Check 0.9 秒、酒馆助手 3 秒、titania-theater 0.5 秒、persona-weaver 1.5 秒。',
     },
     {
-        target: '#gg-storage-fold',
-        tag: '存储',
-        body: '草稿最多留几条、留几天、多少秒没新字算卡住。手机上内存紧，条数别开太大。',
+        target: '#gg-set-autorestore',
+        tag: '接回：不花额度',
+        body: '「被打断时自动接回」：刷新回来、打开同一个聊天，草稿会直接补成一正式的一轮并保存。它走的是酒馆自己的渲染，所以能右滑、能重新生成、能导出。这一步不发任何请求 —— 一个字都不重新生成，钱不会再花第二遍。',
+    },
+    {
+        target: '#gg-set-quiet',
+        tag: '平时别烦你',
+        body: '「安静模式」：正常写完一声不吭，只有真被打断才出声。想让它每存一次草稿都报一声，把这个关掉就行。「通知状态栏类扩展」在它下面：接回之后广播一次「这条渲染好了」，给自动翻译、状态栏、TTS 用；不广播它们会以为这条还没写完。本扩展自己不额外发请求。',
+    },
+    {
+        target: '#gg-set-autosend',
+        tag: '续写：只填不发',
+        body: '点「续写」的时候默认只把一段指令放进输入框，你可以先自己补两句再按发送，不会偷偷发请求。想让它续写后直接发，就打开这个开关。指令本身在下面「续写指令」那块，可以自己改，也给了主线、番外两条预设。',
     },
     {
         target: '#gg-compat-fold',
         tag: '兼容状态',
-        body: '列出你酒馆里那几个会自己刷页的扩展 —— 柏宝箱、Horae、Self-Check、酒馆助手这些。标题右边那个数字是命中几个；它们动手刷新之前，我们先把草稿钉进存储。',
+        body: '这一块列出你酒馆里会自己刷页的那几个扩展，标题右边的数字是命中几个。它们动手刷新之前，我们先把草稿钉进存储 —— 就算你没拦住，字也还在。',
     },
     {
         target: '#gg-snap-fold',
         tag: '已保存草稿',
-        body: '被打断过的草稿都在这里，按时间倒序。可以逐条接回，也可以一键清空。正常写完的那一次不会留残留。',
+        body: '被打断过的草稿都在这儿，按时间倒序。可以逐条「接回」写回聊天，也可以一键清空。正常写完的那一次不会留残留。',
+    },
+    {
+        target: '#gg-theme-fold',
+        tag: '主题',
+        body: '八套配色。收起的时候右边那一条就是这八套的色谱：每一格上半是底色、下半是主色，当前那套放大并加一圈环 —— 不展开也知道现在是哪一套。点一下盖子掀开，下面是八张卡。',
     },
     {
         target: '#gg-help',
         tag: '重看',
-        body: '就是这个小问号。以后想再看一遍这一套，点它就从第一步重来。',
+        body: '就是这个小问号。以后想再看一遍这一整套，点它就从第一步重来。',
     },
 ];
 
@@ -1592,8 +1607,30 @@ function ensureGuide() {
 }
 
 /**
+ * 点亮一个控件之前先确认它真的露着：
+ * 开关那几行在折叠块里，用户要是把它收起来了，就先替他掀开再照亮。
+ */
+function revealGuideTarget(target) {
+    if (!target) {
+        return false;
+    }
+    const rect = target.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+        return true;
+    }
+    const fold = target.closest?.('.gg-fold');
+    const head = fold?.querySelector?.('.gg-fold-head');
+    if (head && fold.getAttribute('aria-expanded') !== 'true') {
+        head.click();
+        return true;
+    }
+    return false;
+}
+
+/**
  * 把当前这一块照亮：高亮框贴着它，四周靠一层巨大的外阴影压暗。
  * 框和气泡都是 fixed 定位，所以面板滚动、窗口尺寸变化时要重新放一次。
+ * 指引的是单个开关时，照亮它整个 label（只框一个小小的勾选框太小了）。
  */
 function placeSpotlight(selector) {
     const spot = el('gg-guide-spot');
@@ -1601,7 +1638,10 @@ function placeSpotlight(selector) {
     if (!spot || !card) {
         return;
     }
-    const target = selector ? document.querySelector(selector) : null;
+    let target = selector ? document.querySelector(selector) : null;
+    if (target && target.matches?.('input, textarea')) {
+        target = target.closest?.('label') || target;
+    }
     if (!target) {
         spot.style.display = 'none';
         card.dataset.anchored = '0';
@@ -1673,7 +1713,13 @@ function renderGuide() {
     if (next) {
         next.textContent = guideIndex >= GUIDE_STEPS.length - 1 ? '开始用' : '下一步';
     }
-    placeSpotlight(step.target);
+    // 这一块要是收着就先掀开（掀完要等一帧才量得到位置）
+    const lit = step.target ? document.querySelector(step.target) : null;
+    if (lit && revealGuideTarget(lit)) {
+        setTimeout(() => placeSpotlight(step.target), 180);
+    } else {
+        placeSpotlight(step.target);
+    }
 }
 
 function openGuide() {
@@ -2322,7 +2368,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.17</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.18</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
@@ -2546,8 +2592,10 @@ function mountSettings(retry = 0) {
     renderCompatSection();
     syncExtEntry();
 
-    /* 收起那一行里的小巧思：八颗点就是八套配色本身，横着排成一条调色盘；
-       当前那套的点长出一圈同色环并放大一点 —— 不展开也知道现在是哪一套。 */
+    /* 收起那一行里的小巧思：八颗点就是八套配色本身，横着排成一条调色盘。
+       底色太接近，光靠主色分不出八套（她原话「好几个颜色还一样」），
+       所以每颗点做成「底色打底 + 主色内芯」的双色小圆 —— 两个色一起报身份。
+       当前那套长出一圈同色环并放大一点。 */
     const renderThemeFold = () => {
         const current = themeKey();
         const theme = THEMES[current];
@@ -2563,8 +2611,10 @@ function mountSettings(retry = 0) {
         for (const [key, item] of Object.entries(THEMES)) {
             const dot = document.createElement('span');
             dot.className = 'gg-fold-dot';
+            dot.style.setProperty('--b', item.swatches[0]);
             dot.style.setProperty('--d', item.swatches[1]);
             dot.dataset.active = String(key === current);
+            dot.title = `${item.label} ${item.en}`;
             dots.appendChild(dot);
         }
     };

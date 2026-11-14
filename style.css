@@ -111,25 +111,32 @@ body.gg-theme-lotus,
 
 /* 它跟别的扩展按钮排在同一个 #extensionsMenu 里，底色、hover、圆角、内边距
    全交给酒馆自己的规则（#extensionsMenu > .extension_container > div），
-   这里只补排版和生成中那行小字 —— 不额外造一套皮肤，任何全局美化下都不打架。 */
+   这里一个装饰都不加 —— 她的原话：「在魔法棒里就是和其他拓展快捷一样普通的一条，
+   就算有装饰也不能喧宾夺主」。 */
 #gg-wand-entry {
     display: flex;
     align-items: center;
-    gap: 6px;
 }
 
 #gg-wand-entry .gg-wand-name {
     flex: 0 0 auto;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
 }
 
+/* 那行「已保存 N 字」平时根本不占位 —— 一占位这条就比别的扩展宽，
+   菜单里一眼能看出不一样。只在生成中才露出来。 */
 #gg-wand-entry .gg-wand-state {
+    display: none;
     flex: 0 1 auto;
     min-width: 0;
-    margin-left: auto;
+    margin-left: 4px;
     padding-left: 6px;
     font-size: 10px;
+    font-weight: 400;
     letter-spacing: 0.02em;
-    opacity: 0.7;
+    opacity: 0.72;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -137,6 +144,7 @@ body.gg-theme-lotus,
 
 /* 生成中：右边那行小字亮起来（菜单收起时看不到，摊开一眼就知道正在存） */
 #gg-wand-entry.gg-wand-live .gg-wand-state {
+    display: inline;
     opacity: 1;
     font-weight: 600;
     color: var(--gg-primary, inherit);
@@ -738,24 +746,29 @@ body.gg-theme-lotus,
 }
 
 #gg-settings .gg-fold-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--d, transparent);
-    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.28);
-    opacity: 0.62;
+    width: 6px;
+    height: 16px;
+    border-radius: 3px;
+    /* 一窄条 = 这个主题的两个色：上段底色、下段主色。
+       底色本来就都很浅，只靠主色那八颗圆点分不清谁是谁；
+       拼成竖条以后它像一小格色谱，八格并排就是一条真调色盘。 */
+    background: linear-gradient(to bottom,
+        var(--b, transparent) 0 44%,
+        var(--d, transparent) 56% 100%);
+    box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
+    opacity: 0.92;
     transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.3),
         opacity 0.24s ease, box-shadow 0.24s ease, width 0.24s ease, height 0.24s ease;
 }
 
 #gg-settings .gg-fold-dot[data-active="true"] {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 20px;
     opacity: 1;
     box-shadow:
-        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
-        0 0 0 1.5px color-mix(in srgb, var(--gg-deep) 70%, transparent),
-        0 0 0 3px color-mix(in srgb, var(--d) 58%, transparent);
+        inset 0 0 0 0.5px rgba(0, 0, 0, 0.26),
+        0 0 0 1.5px color-mix(in srgb, var(--gg-on, #fff) 88%, transparent),
+        0 0 0 2.5px color-mix(in srgb, var(--gg-primary) 82%, transparent);
 }
 
 /* 收起时它自己就是一块完整的托盘，不再多一条底线 */
@@ -1149,8 +1162,11 @@ body.gg-theme-lotus,
     align-items: center;
     justify-content: center;
     padding: 18px;
-    background: rgba(12, 14, 18, 0.42);
-    backdrop-filter: blur(2px);
+    /* 聚光灯版：不铺黑、不模糊。压暗交给 #gg-guide-spot 的四边外阴影，
+       洞里的字必须看得清 —— blur 留在这里会连被照亮的那一块一起糊掉。 */
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     animation: gg-guide-in 0.2s ease both;
 }
 
@@ -1396,10 +1412,20 @@ body.gg-theme-lotus,
     max-height: min(86dvh, 820px);
     border-radius: 16px;
     color: var(--gg-text);
-    background: radial-gradient(128% 92% at 50% 0%,
-        color-mix(in srgb, var(--gg-card) 96%, transparent) 0%,
-        color-mix(in srgb, var(--gg-card) 90%, transparent) 48%,
-        color-mix(in srgb, var(--gg-card) 68%, transparent) 100%);
+    /* 这里以前用 --gg-card（30% 底色 + 70% 白），八套主题被冲成同一种白 ——
+       现在整块底直接从主题底色派生，主色只在底部收一道边：
+       杏仁白是米黄压褐，雾蓝灰是蓝灰压砖红，南瓜米是浅橙压海盐蓝…… 八套真能分开。 */
+    background:
+        radial-gradient(136% 96% at 50% -8%,
+            color-mix(in srgb, #fffdf8 30%, var(--gg-base)) 0%,
+            transparent 58%),
+        radial-gradient(112% 88% at 50% 108%,
+            color-mix(in srgb, var(--gg-deep) 22%, var(--gg-base)) 0%,
+            transparent 68%),
+        linear-gradient(168deg,
+            color-mix(in srgb, var(--gg-base) 94%, #fffdf8) 0%,
+            color-mix(in srgb, var(--gg-base) 80%, var(--gg-deep) 9%) 58%,
+            color-mix(in srgb, var(--gg-base) 70%, var(--gg-deep) 22%) 100%);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.88),
         inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
@@ -1507,6 +1533,11 @@ body.gg-theme-lotus,
     display: block;
     padding: 0;
     background: none;
+    /* 旧版是「全屏薄雾」，这里 blur(2px) 会把被照亮的那一块一起糊掉 —— 她说
+       「介绍的地方还要专门模糊啊，看都看不清」。压暗交给高亮框的外阴影，
+       过滤层必须彻底关掉，洞里要能看清字。 */
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
     pointer-events: none;
 }
 

@@ -1664,25 +1664,25 @@ async function scenarioGuide() {
 
     const guide = document.getElementById('gg-guide');
     ok('第一次进来会自己弹一遍', Boolean(guide) && !guide.classList.contains('gg-hidden'));
-    eq('第一步照亮主题那一行', document.getElementById('gg-guide-title')?.textContent?.trim(), '主题');
+    eq('第一步先讲它在干什么', document.getElementById('gg-guide-title')?.textContent?.trim(), '它到底在干什么');
     // jsdom 没有排版，量不出像素；这里只核高亮框存在，以及七个照亮目标都在面板里
     ok('有一个高亮框（挖洞靠它的外阴影）', Boolean(document.getElementById('gg-guide-spot')));
-    ok('七个照亮目标都是面板里真实的一块',
-        ['#gg-theme-fold', '#gg-switch-fold', '#gg-prompt-fold', '#gg-storage-fold', '#gg-compat-fold', '#gg-snap-fold', '#gg-help']
+    ok('十个照亮目标都是面板里真实的一块',
+        ['#gg-set-enabled', '#gg-set-block', '#gg-set-ops', '#gg-set-autorestore', '#gg-set-quiet', '#gg-set-autosend', '#gg-compat-fold', '#gg-snap-fold', '#gg-theme-fold', '#gg-help']
             .every((sel) => Boolean(document.querySelector(sel))));
-    eq('步数标着 1 / 7', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
-    eq('底部七颗进度点', document.querySelectorAll('#gg-guide-dots .gg-guide-dot').length, 7);
+    eq('步数标着 1 / 10', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 10');
+    eq('底部十颗进度点', document.querySelectorAll('#gg-guide-dots .gg-guide-dot').length, 10);
     ok('第一步的上一步是灰的', Boolean(document.getElementById('gg-guide-prev')?.disabled));
 
     const next = document.getElementById('gg-guide-next');
     next.click();
-    eq('点下一步走到第 2 步', document.getElementById('gg-guide-step')?.textContent?.trim(), '2 / 7');
-    eq('第二步照亮开关那一块', document.getElementById('gg-guide-title')?.textContent?.trim(), '开关');
+    eq('点下一步走到第 2 步', document.getElementById('gg-guide-step')?.textContent?.trim(), '2 / 10');
+    eq('第二步讲拦手动刷新', document.getElementById('gg-guide-title')?.textContent?.trim(), '拦手动刷新');
 
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
         next.click();
     }
-    eq('走到最后一步', document.getElementById('gg-guide-step')?.textContent?.trim(), '7 / 7');
+    eq('走到最后一步', document.getElementById('gg-guide-step')?.textContent?.trim(), '10 / 10');
     eq('最后一步的按钮变成「开始用」', next.textContent?.trim(), '开始用');
     next.click();
     ok('点「开始用」就收起', document.getElementById('gg-guide').classList.contains('gg-hidden'));
@@ -1698,7 +1698,7 @@ async function scenarioGuide() {
     // 面板底部那个「?」随时能翻出来
     document.getElementById('gg-help').click();
     ok('点「?」又出来了', !document.getElementById('gg-guide').classList.contains('gg-hidden'));
-    eq('而且是从第一步重来', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 7');
+    eq('而且是从第一步重来', document.getElementById('gg-guide-step')?.textContent?.trim(), '1 / 10');
 
     // 聚光灯式：不再铺一整块黑遮罩，改成高亮框 + 气泡；右上角 ✕ 就是「跳过」
     ok('引导现在是高亮框 + 气泡，不是全屏说明书',
