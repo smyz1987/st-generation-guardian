@@ -69,7 +69,11 @@ body.gg-theme-lotus   { --gg-base: #f5f2ee; --gg-deep: #a9a1b0; --gg-ink: #37333
 [data-gg-theme="butter"]  { --gg-base: #edf0e2; --gg-deep: #b48a78; --gg-ink: #3b2c25; }
 [data-gg-theme="lotus"]   { --gg-base: #f5f2ee; --gg-deep: #a9a1b0; --gg-ink: #37333c; }
 
-/* 统一派生：十二个角色全部来自 base / deep 这两支 */
+/* 统一派生。规则只有一条：底色和主色**并置，不混合**。
+   配色卡给的是一张图两个色 —— 左边大片底色、右边大片主色，各占一半。
+   把两色掺在一起就会出脏色（蓝灰 + 红陶土 = 灰褐，她一眼就看出「雾蓝灰哪有这个棕色」）。
+   所以：大面积永远是纯底色，主色以「整块」的形式出现（标题条、开关、序号块、色谱），
+   正文用中性深墨，不让任何颜色渗进底子里。 */
 body.gg-theme-almond,
 body.gg-theme-cream,
 body.gg-theme-haze,
@@ -80,17 +84,20 @@ body.gg-theme-butter,
 body.gg-theme-lotus,
 [data-gg-theme] {
     --gg-bg: var(--gg-base);
-    --gg-surface: color-mix(in srgb, var(--gg-base) 62%, #fffdf8);
-    --gg-card: color-mix(in srgb, var(--gg-base) 30%, #fffdf8);
+    /* 底子只跟白色混一点提亮，绝不掺主色 */
+    --gg-surface: color-mix(in srgb, var(--gg-base) 92%, #fffdf8);
+    --gg-card: color-mix(in srgb, var(--gg-base) 88%, #fffdf8);
     --gg-hover: color-mix(in srgb, var(--gg-deep) 11%, transparent);
-    --gg-text: color-mix(in srgb, var(--gg-deep) 38%, #1e1a18);
-    --gg-text-2: color-mix(in srgb, var(--gg-deep) 54%, #1e1a18);
-    --gg-muted: color-mix(in srgb, var(--gg-deep) 68%, #1e1a18);
-    --gg-primary: color-mix(in srgb, var(--gg-deep) 55%, #1e1a18);
-    --gg-secondary: color-mix(in srgb, var(--gg-deep) 88%, var(--gg-base));
+    /* 正文是中性深墨，不是「主色掺黑」—— 掺黑会变成褐色 */
+    --gg-text: #26221f;
+    --gg-text-2: #3a3531;
+    --gg-muted: #6d6660;
+    /* 强调字/标签/图标：主色本身，不做任何调淡 */
+    --gg-primary: var(--gg-deep);
+    --gg-secondary: color-mix(in srgb, var(--gg-deep) 84%, #fffdf8);
     --gg-accent: var(--gg-deep);
-    --gg-border: color-mix(in srgb, var(--gg-deep) 38%, var(--gg-base));
-    --gg-input: color-mix(in srgb, var(--gg-base) 22%, #ffffff);
+    --gg-border: color-mix(in srgb, var(--gg-deep) 32%, transparent);
+    --gg-input: color-mix(in srgb, var(--gg-base) 58%, #ffffff);
     --gg-on: #fffdf8;
     --gg-danger: #a35e5e;
 }
@@ -686,19 +693,18 @@ body.gg-theme-lotus,
     min-height: 0;
 }
 
-/* ---------- 主题那一条：底色托盘，主色只做字和边 ---------- */
+/* ---------- 主题那一条：一整块主色，就是色卡上那半张 ---------- */
 
-/* 以前整条铺 --gg-deep（主色），雾蓝灰那套的主色是砖红，一整条就糊成咖啡色
-   —— 她截图反馈「完全不对」。配色卡给的是「底色 + 主色」，底色才是大面积的，
-   主色只该出现在字、序号块、边线、选中环上。 */
+/* 配色卡是一张图两个色：左半大片底色、右半大片主色。所以这条用**纯主色**铺一整块，
+   字用 --gg-ink（深主色配白字、浅主色配深字，跟色卡一致），跟浅底面板形成两个色面。
+   注意别把它调成「底色掺主色」—— 一掺就是灰褐。 */
 #gg-settings #gg-theme-fold .gg-fold-head {
     margin: 4px 0 0;
     padding: 10px 12px 9px 13px;
     border-radius: 10px;
-    color: var(--gg-primary);
-    background: color-mix(in srgb, var(--gg-base) 86%, var(--gg-deep) 9%);
-    border: 1px solid color-mix(in srgb, var(--gg-deep) 22%, transparent);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
+    color: var(--gg-ink);
+    background: var(--gg-deep);
+    border: 0;
     letter-spacing: 0.02em;
     transition: background 0.15s ease, border-radius 0.3s ease;
 }
@@ -708,29 +714,29 @@ body.gg-theme-lotus,
 }
 
 #gg-settings #gg-theme-fold .gg-fold-head::before {
-    color: var(--gg-ink);
-    background: var(--gg-deep);
+    color: var(--gg-deep);
+    background: var(--gg-base);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-head:hover {
-    background: color-mix(in srgb, var(--gg-base) 78%, var(--gg-deep) 14%);
+    background: color-mix(in srgb, var(--gg-deep) 88%, #1e1a18);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-chev {
-    color: var(--gg-primary);
+    color: var(--gg-ink);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-tag {
     font-size: 11px;
-    color: var(--gg-primary);
+    color: var(--gg-ink);
 }
 
-/* 当前那套的名字，贴着八颗点 */
+/* 当前那套的名字，贴着八颗色谱 */
 #gg-settings .gg-fold-current {
     font-size: 11.5px;
     font-weight: 500;
     letter-spacing: normal;
-    color: var(--gg-text);
+    color: var(--gg-base);
     flex: 0 0 auto;
     white-space: nowrap;
     overflow: hidden;
@@ -1421,16 +1427,13 @@ body.gg-theme-lotus,
     max-height: min(86dvh, 820px);
     border-radius: 16px;
     color: var(--gg-text);
-    /* 这里以前用 --gg-card（30% 底色 + 70% 白），八套主题被冲成同一种白 ——
-       现在整块底直接从主题底色派生，主色只掺一点点收边：
-       杏仁白是米黄压褐，雾蓝灰是蓝灰压砖红，南瓜米是浅橙压海盐蓝…… 八套真能分开。
-       注意：底板必须是实色。玻璃那层 blur 会把酒馆背景（暖色渐变）采样进来，
-       一采样就会把雾蓝灰染成咖啡色 —— 她截图反馈的「颜色完全不对」就是这个。 */
+    /* 底板：纯底色 + 白/黑只调明度，主色一点不掺。
+       玻璃那层 blur 会把酒馆背景采样进来染色，所以饱和度压到 1.02。 */
     background:
         linear-gradient(170deg,
-            color-mix(in srgb, var(--gg-base) 97%, #fffdf8) 0%,
-            color-mix(in srgb, var(--gg-base) 94%, var(--gg-deep) 4%) 56%,
-            color-mix(in srgb, var(--gg-base) 88%, var(--gg-deep) 13%) 100%);
+            color-mix(in srgb, var(--gg-base) 96%, #fffdf8) 0%,
+            var(--gg-base) 52%,
+            color-mix(in srgb, var(--gg-base) 93%, #1e1a18 7%) 100%);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.88),
         inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
