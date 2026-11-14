@@ -686,16 +686,19 @@ body.gg-theme-lotus,
     min-height: 0;
 }
 
-/* ---------- 主题那一条：深色托盘盖起来 ---------- */
+/* ---------- 主题那一条：底色托盘，主色只做字和边 ---------- */
 
-/* 全屏唯一一块大面积彩色还是它：收起时是一个完整的圆角托盘，
-   展开时只留上面两个角、下面接八张浅卡 —— 「盖子掀开」就这一下。 */
+/* 以前整条铺 --gg-deep（主色），雾蓝灰那套的主色是砖红，一整条就糊成咖啡色
+   —— 她截图反馈「完全不对」。配色卡给的是「底色 + 主色」，底色才是大面积的，
+   主色只该出现在字、序号块、边线、选中环上。 */
 #gg-settings #gg-theme-fold .gg-fold-head {
     margin: 4px 0 0;
     padding: 10px 12px 9px 13px;
     border-radius: 10px;
-    color: var(--gg-ink);
-    background: var(--gg-deep);
+    color: var(--gg-primary);
+    background: color-mix(in srgb, var(--gg-base) 86%, var(--gg-deep) 9%);
+    border: 1px solid color-mix(in srgb, var(--gg-deep) 22%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
     letter-spacing: 0.02em;
     transition: background 0.15s ease, border-radius 0.3s ease;
 }
@@ -705,21 +708,21 @@ body.gg-theme-lotus,
 }
 
 #gg-settings #gg-theme-fold .gg-fold-head::before {
-    color: var(--gg-deep);
-    background: var(--gg-base);
+    color: var(--gg-ink);
+    background: var(--gg-deep);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-head:hover {
-    background: color-mix(in srgb, var(--gg-deep) 88%, var(--gg-base));
+    background: color-mix(in srgb, var(--gg-base) 78%, var(--gg-deep) 14%);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-chev {
-    color: var(--gg-base);
+    color: var(--gg-primary);
 }
 
 #gg-settings #gg-theme-fold .gg-fold-tag {
     font-size: 11px;
-    color: var(--gg-ink);
+    color: var(--gg-primary);
 }
 
 /* 当前那套的名字，贴着八颗点 */
@@ -727,7 +730,7 @@ body.gg-theme-lotus,
     font-size: 11.5px;
     font-weight: 500;
     letter-spacing: normal;
-    color: var(--gg-base);
+    color: var(--gg-text);
     flex: 0 0 auto;
     white-space: nowrap;
     overflow: hidden;
@@ -910,20 +913,26 @@ body.gg-theme-lotus,
     border-bottom: 0;
 }
 
-/* 开关：固定 34×19 胶囊 */
+/* 开关：固定 34×19 胶囊。
+   她装了主题管理器 / Layout 这类全局美化，它们会拿 `input[type=checkbox]`
+   整个重画（实测被改成 42×26 的紫色胶囊，跟面板完全不是一个东西）——
+   这几个尺寸和颜色必须 !important 才拿得回来。 */
 #gg-settings .gg-check input[type="checkbox"] {
-    -webkit-appearance: none;
-    appearance: none;
+    -webkit-appearance: none !important;
+    appearance: none !important;
     flex: 0 0 auto;
-    width: 34px;
-    height: 19px;
-    margin: 1px 0 0;
-    padding: 0;
-    border-radius: 999px;
-    border: 1px solid var(--gg-border);
-    background: var(--gg-input);
+    width: 34px !important;
+    height: 19px !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    margin: 1px 0 0 !important;
+    padding: 0 !important;
+    border-radius: 999px !important;
+    border: 1px solid var(--gg-border) !important;
+    background: var(--gg-input) !important;
     position: relative;
     cursor: pointer;
+    box-shadow: none !important;
     transition: background 0.18s ease, border-color 0.18s ease;
 }
 
@@ -940,8 +949,8 @@ body.gg-theme-lotus,
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked {
-    background: var(--gg-deep);
-    border-color: color-mix(in srgb, var(--gg-deep) 78%, #1e1a18);
+    background: var(--gg-deep) !important;
+    border-color: color-mix(in srgb, var(--gg-deep) 78%, #1e1a18) !important;
 }
 
 #gg-settings .gg-check input[type="checkbox"]:checked::after {
@@ -1413,26 +1422,22 @@ body.gg-theme-lotus,
     border-radius: 16px;
     color: var(--gg-text);
     /* 这里以前用 --gg-card（30% 底色 + 70% 白），八套主题被冲成同一种白 ——
-       现在整块底直接从主题底色派生，主色只在底部收一道边：
-       杏仁白是米黄压褐，雾蓝灰是蓝灰压砖红，南瓜米是浅橙压海盐蓝…… 八套真能分开。 */
+       现在整块底直接从主题底色派生，主色只掺一点点收边：
+       杏仁白是米黄压褐，雾蓝灰是蓝灰压砖红，南瓜米是浅橙压海盐蓝…… 八套真能分开。
+       注意：底板必须是实色。玻璃那层 blur 会把酒馆背景（暖色渐变）采样进来，
+       一采样就会把雾蓝灰染成咖啡色 —— 她截图反馈的「颜色完全不对」就是这个。 */
     background:
-        radial-gradient(136% 96% at 50% -8%,
-            color-mix(in srgb, #fffdf8 30%, var(--gg-base)) 0%,
-            transparent 58%),
-        radial-gradient(112% 88% at 50% 108%,
-            color-mix(in srgb, var(--gg-deep) 22%, var(--gg-base)) 0%,
-            transparent 68%),
-        linear-gradient(168deg,
-            color-mix(in srgb, var(--gg-base) 94%, #fffdf8) 0%,
-            color-mix(in srgb, var(--gg-base) 80%, var(--gg-deep) 9%) 58%,
-            color-mix(in srgb, var(--gg-base) 70%, var(--gg-deep) 22%) 100%);
+        linear-gradient(170deg,
+            color-mix(in srgb, var(--gg-base) 97%, #fffdf8) 0%,
+            color-mix(in srgb, var(--gg-base) 94%, var(--gg-deep) 4%) 56%,
+            color-mix(in srgb, var(--gg-base) 88%, var(--gg-deep) 13%) 100%);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.88),
         inset 0 -1px 0 color-mix(in srgb, var(--gg-text) 9%, transparent),
         0 1px 2px rgba(20, 16, 14, 0.05),
-        0 24px 60px color-mix(in srgb, var(--gg-primary) 24%, transparent);
-    -webkit-backdrop-filter: blur(30px) saturate(1.55) brightness(1.06);
-    backdrop-filter: blur(30px) saturate(1.55) brightness(1.06);
+        0 24px 60px color-mix(in srgb, var(--gg-primary) 20%, transparent);
+    -webkit-backdrop-filter: blur(24px) saturate(1.02);
+    backdrop-filter: blur(24px) saturate(1.02);
     overflow: hidden;
 }
 
