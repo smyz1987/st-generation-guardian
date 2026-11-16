@@ -394,6 +394,26 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 想重看：面板最下面那行版本号右边多了一枚小「?」（`#gg-help`），点它从第 1 步重来。
 - 引导是浮在 `body` 上的一层薄雾 + 一张卡，`z-index` 拉到最高；点遮罩空白处、点 ✕、走完最后一步点「开始用」都能关。手机端卡片贴底、宽度拉满。
 
+### 1.3.33：扩展页那条入口长得像原生的了，手机端打开面板多一条兜底
+
+**入口对齐原生。** 1.3.30 把扩展页那行改成套 `.inline-drawer` 结构，但图标用的是 `fa-caret-right`、还多带了 `fa-fw`。酒馆原生抽屉（`index.html:2955` 那一段）是：
+
+```html
+<div class="inline-drawer wide100p">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b>Reverse Proxy</b>
+        <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
+    </div>
+    <div class="inline-drawer-content">…</div>
+</div>
+```
+
+现在外层补 `wide100p`、图标换成 `fa-solid fa-circle-chevron-down inline-drawer-icon down`，面板本体那层也补 `wide100p`。点它仍然直接弹面板，不摊开一块空内容。
+
+**手机端「点了没反应」加兜底。** `<dialog>` 的 `showModal()` 在个别手机 WebView 上偶尔不成功 —— 不 open 的 dialog 浏览器给的样式是 `display:none`，面板其实已经在 DOM 里，就是一个字都看不见，表现正是「点了没反应」。现在打开 320ms 后自检一次它在视口里到底有没有占住位置，没有就降级：`show()` + 手写 `position:fixed / inset:0 / z-index:2147483000`，同时 `.gg-modal-fallback` 自己把遮罩底色和模糊补上（降级时没有 `::backdrop` 可用）。关掉面板时把那几行手动样式清干净，下次打开不带残留。
+
+另外 `openPanelModal` 里建面板那一步包了 try/catch：某个控件没绑上，不能连带把「打开面板」中断。
+
 ### 1.3.32：把 1.3.31 自己带出来的六处问题清掉
 
 1.3.31 的影子副本和宽限窗口写完之后通篇复查了一遍，找出六处「会误报、会重复、会白忙」的地方：

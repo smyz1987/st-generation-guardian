@@ -1446,6 +1446,14 @@ body.gg-theme-lotus,
     display: none;
 }
 
+/* showModal() 在个别手机 WebView 上没抢到 top layer 时，JS 会把 dialog 降级成普通浮层
+   （show() + 手写 fixed/z-index）。这时没有 ::backdrop 了，遮罩底色得自己给。 */
+.gg-modal.gg-modal-fallback {
+    background: rgba(20, 18, 22, 0.42);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+}
+
 .gg-modal-card {
     display: flex;
     flex-direction: column;

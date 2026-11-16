@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.32';
+const VERSION = '1.3.33';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1529,14 +1529,21 @@ function mountExtEntry(host) {
     if (!entry) {
         entry = document.createElement('div');
         entry.id = 'gg-ext-entry';
-        entry.className = 'inline-drawer';
+        entry.className = 'inline-drawer wide100p';
+        // 结构和酒馆原生抽屉逐字对齐：icon 用 fa-circle-chevron-down + inline-drawer-icon down，
+        // 不带 fa-fw —— 换了图标形状或 class 组合，并排时会一眼看出是外来的
         entry.innerHTML = `
             <div class="inline-drawer-toggle inline-drawer-header" id="gg-ext-open" title="生成守护，点开面板">
                 <b>生成守护</b>
-                <div class="inline-drawer-icon fa-solid fa-caret-right fa-fw down"></div>
+                <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
             </div>`;
         host.appendChild(entry);
-        el('gg-ext-open')?.addEventListener('click', () => openPanelModal());
+        el('gg-ext-open')?.addEventListener('click', (event) => {
+            // 留着原生抽屉的展开动画，但不让它真的摊开一块空白
+            event.preventDefault();
+            event.stopPropagation();
+            openPanelModal();
+        });
     }
     return entry;
 }
@@ -1596,7 +1603,13 @@ function openPanelModal(retry = 0) {
     if (!root) {
         // 面板还没建过就当场建一个 —— 手机端最容易卡在这，
         // 表现就是「点魔杖里那一条什么都没发生」。
-        mountSettings();
+        // 建的过程中哪个控件没绑上，也不能连带把「打开面板」中断：
+        // wrapper 已经 append 进 DOM 了，面板至少能看见。
+        try {
+            mountSettings();
+        } catch (error) {
+            console.warn(TAG, 'mount settings failed', error);
+        }
         root = el('gg-settings');
     }
     const body = el('gg-modal-body');
@@ -1627,6 +1640,31 @@ function openPanelModal(retry = 0) {
         }
     }
 
+    // 兜底自检：手机上偶发「点了没反应」—— 多半是 showModal 在这一跳没成功，
+    // dialog 不 open 时浏览器给的是 display:none，面板其实在 DOM 里却一个字都看不见。
+    // 这里等一下看它到底有没有占住视口，没有就降级成普通浮层（手写 z-index，硬压到最上层）。
+    setTimeout(() => {
+        try {
+            if (!modal || modal.classList.contains('gg-hidden')) {
+                return;
+            }
+            const rect = modal.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                return;
+            }
+            if (typeof modal.show === 'function' && !modal.open) {
+                modal.show();
+            }
+            modal.style.position = 'fixed';
+            modal.style.inset = '0';
+            modal.style.display = 'flex';
+            modal.style.zIndex = '2147483000';
+            modal.classList.add('gg-modal-fallback');
+        } catch (error) {
+            console.warn(TAG, 'modal fallback failed', error);
+        }
+    }, 320);
+
     // 第一次打开面板就顺手把引导走到，不让她自己去猜
     if (!settings().guideSeen) {
         openGuide();
@@ -1639,6 +1677,14 @@ function closePanelModal() {
         return;
     }
     modal.classList.add('gg-hidden');
+    // 清掉降级模式那几行手动样式，别让下次打开带着上次的残留
+    if (modal.classList.contains('gg-modal-fallback')) {
+        modal.classList.remove('gg-modal-fallback');
+        modal.style.position = '';
+        modal.style.inset = '';
+        modal.style.display = '';
+        modal.style.zIndex = '';
+    }
     if (modal.open && typeof modal.close === 'function') {
         modal.close();
     }
@@ -2990,7 +3036,7 @@ function mountSettings(retry = 0) {
     }
     const wrapper = document.createElement('div');
     wrapper.id = 'gg-settings';
-    wrapper.className = host ? 'inline-drawer' : 'gg-standalone';
+    wrapper.className = host ? 'inline-drawer wide100p' : 'gg-standalone';
     wrapper.innerHTML = SETTINGS_HTML;
     container.appendChild(wrapper);
     if (host) {
