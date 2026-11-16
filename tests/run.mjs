@@ -336,6 +336,9 @@ async function scenarioNormalCompletionKeepsNothing() {
     console.log('\n[2] 正常生成完成 → 不留草稿、不弹卡片');
     captureConsole();
     storage.clear();
+    // 真机上「看着落地了」的草稿还有 3 分钟宽限（防的是内存有、磁盘没有）；
+    // 这里把它压成 0，等价于「确认落地了立刻清」
+    globalThis.__ggLandedSweepMs = 0;
 
     const chat = makeChat();
     const ctx = createWorld({ chat });
@@ -369,6 +372,7 @@ async function scenarioNormalCompletionKeepsNothing() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+    delete globalThis.__ggLandedSweepMs;
 }
 
 async function scenarioContinueType() {
@@ -712,6 +716,7 @@ async function scenarioImpersonateCompletion() {
     console.log('\n[11] 「替我说话」正常完成 → 不留草稿（旧版会误留）');
     captureConsole();
     storage.clear();
+    globalThis.__ggLandedSweepMs = 0;
 
     const chat = makeChat();
     const ctx = createWorld({ chat });
@@ -731,6 +736,7 @@ async function scenarioImpersonateCompletion() {
 
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level])=> level === 'error').length === 0, JSON.stringify(issues));
+    delete globalThis.__ggLandedSweepMs;
 }
 
 async function scenarioMissedGenerationStarted() {
@@ -1717,6 +1723,50 @@ async function scenarioGuide() {
     restoreConsole();
 }
 
+async function scenarioMemoryLandedButDiskLost() {
+    console.log('\n[31] 内存里看得见、磁盘上没存下来 → 下次进页面还能救回');
+    captureConsole();
+    storage.clear();
+    extensionSettingsStub['generation-guardian'] = {
+        enabled: true,
+        blockReload: true,
+        autoRestore: true,
+        resumePrompt: '继续生成上一轮剧情，衔接上文末尾，不要从头开始。',
+    };
+
+    const chat = makeChat();
+    const ctx = createWorld({ chat });
+    await bootExtension();
+    await signalReady(ctx);
+
+    const full = '这一段回复在内存里已经完整了，但酒馆的 saveChat 卡住没回来。';
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_STARTED, 'normal', {}, false);
+    await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, full);
+    // 内存里 push 了（chatDraftLanded 会判成「已经落地」）
+    chat.push({ name: '沈砚', is_user: false, is_system: false, mes: full, send_date: '2026-11-13T08:05:00.000Z' });
+    await ctx.eventSource.emit(EVENT_TYPES.GENERATION_ENDED, chat.length);
+    await sleep(80);
+
+    ok('草稿没被当场删掉（真机上还有 3 分钟宽限）', readSnapshots().length === 1, String(readSnapshots().length));
+
+    // 模拟刷新回来：磁盘上的聊天记录里并没有那一条
+    // （真刷新是整页重来，节流计时器也跟着清空；测试里手动清掉）
+    delete globalThis.__ggScanRunning;
+    const diskChat = makeChat();
+    const ctx2 = createWorld({ chat: diskChat });
+    await bootExtension();
+    await signalReady(ctx2);
+    await sleep(900);
+
+    eq('磁盘里没有 → 自动补回一条', diskChat.length, 3);
+    eq('补回的内容逐字一致', String(diskChat[2]?.mes || ''), full);
+    ok('补回后不再留同一份草稿', readSnapshots().length === 0, String(readSnapshots().length));
+
+    delete extensionSettingsStub['generation-guardian'];
+    const issues = restoreConsole();
+    ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
+}
+
 async function main() {
     fs.mkdirSync(path.dirname(sandboxExtension), { recursive: true });
     fs.copyFileSync(path.join(repoRoot, 'index.js'), sandboxExtension);
@@ -1751,6 +1801,7 @@ async function main() {
     await scenarioWandEntry();
     await scenarioPanelFolds();
     await scenarioGuide();
+    await scenarioMemoryLandedButDiskLost();
 
     console.log(`\n==== 结果：${passed} 通过 / ${failures.length} 失败 ====`);
     if (failures.length) {

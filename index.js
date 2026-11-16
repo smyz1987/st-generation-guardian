@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.30';
+const VERSION = '1.3.31';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -503,6 +503,65 @@ function removeSnapshot(id) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 影子副本
+ *
+ * 「内存里能看到这段字」≠「磁盘上已经存了」。
+ * 酒馆的 saveReply 先把文本写进 ctx.chat（内存），saveChat 是随后的异步 POST。
+ * 一轮生成显示完了、可页面卡住 / 请求没回来时，内存里有、磁盘没有 ——
+ * 那一刻按常规把草稿删掉，她刷新进来就是两头空：聊天里没有，草稿也没了。
+ *
+ * 所以删草稿之前，先把它压进一份独立的影子副本（只留最近这一条）。
+ * 下次进页面用的是磁盘上的聊天记录：比对得上就丢掉，比对不上就拿出来当草稿。
+ * 正常情况它活不过一次启动；出问题的那一次，它是唯一还记着那段字的东西。
+ * ------------------------------------------------------------------ */
+
+const SHADOW_KEY = 'genGuardian.shadow.v1';
+
+function writeShadow(snapshot) {
+    try {
+        const text = clipDraft(String(snapshot?.text || '')).text;
+        if (!text.trim()) {
+            return;
+        }
+        localStorage.setItem(SHADOW_KEY, JSON.stringify({
+            ...snapshot,
+            text,
+            shadowedAt: Date.now(),
+        }));
+    } catch (error) {
+        console.warn(TAG, 'write shadow failed', error);
+    }
+}
+
+function readShadow() {
+    try {
+        const raw = localStorage.getItem(SHADOW_KEY);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed.text !== 'string' || !parsed.text.trim()) {
+            return null;
+        }
+        if (Date.now() - Number(parsed.shadowedAt || 0) > keepDaysMs()) {
+            return null;
+        }
+        return parsed;
+    } catch (error) {
+        console.warn(TAG, 'read shadow failed', error);
+        return null;
+    }
+}
+
+function clearShadow() {
+    try {
+        localStorage.removeItem(SHADOW_KEY);
+    } catch (error) {
+        console.warn(TAG, 'clear shadow failed', error);
+    }
+}
+
+/* ------------------------------------------------------------------ *
  * 生成生命周期
  * ------------------------------------------------------------------ */
 
@@ -772,10 +831,19 @@ function onGenerationFinished(reason) {
         return;
     }
 
-    // 正常结束时内容已经完整写进聊天了，不需要留草稿。
-    // 这里判定一律保守：拿不准就留着，交给后面的复核处理。
+    // 正常结束时内容看起来已经在聊天里了，但「内存里能看到这段字」≠「磁盘上已经存了」。
+    // 酒馆的 saveReply 先把文本写进 ctx.chat（内存），saveChat 是随后的异步 POST。
+    // 生成显示完了、可页面卡住 / 请求没回来时，内存里有、磁盘没有 ——
+    // 当场删草稿就是两头空：刷新进来聊天里没有，草稿也没了。
+    // 所以不立刻删：先留一份影子副本，再给草稿一个宽限窗口，
+    // 窗口内被刷 / 切聊天都还能扫到它；窗口过了没被翻出来才清掉。
     if (chatDraftLanded(snapshot)) {
-        removeSnapshot(snapshot.id);
+        writeShadow(snapshot);
+        snapshot.landedGuess = true;
+        snapshot.endedCleanly = false;
+        snapshot.updatedAt = Date.now();
+        upsertSnapshot(snapshot);
+        scheduleLandedSweep(snapshot);
         settlePostGenerationGuard();
         return;
     }
@@ -799,6 +867,33 @@ function onGenerationFinished(reason) {
  */
 const LANDED_RECHECK_DELAYS = [1200, 1500, 2000, 3000];
 
+/* 「看着已经落地」之后，草稿还留多久。
+   这段时间内刷新 / 切聊天都能扫到它：真没落盘就是救命的，真落盘了会被清理逻辑先删掉。
+   过了这段时间还没被翻出来（也没被清掉）才静悄悄删，免得存储被一轮轮备份堆满。 */
+const LANDED_SWEEP_MS = 3 * 60 * 1000;
+
+function landedSweepMs() {
+    const custom = Number(globalThis.__ggLandedSweepMs);
+    return Number.isFinite(custom) && custom >= 0 ? custom : LANDED_SWEEP_MS;
+}
+
+function scheduleLandedSweep(snapshot) {
+    const wait = landedSweepMs();
+    setTimeout(() => {
+        try {
+            if (!readAll().some((item) => item.id === snapshot.id)) {
+                return;
+            }
+            // 又要进页面了：这时 ctx.chat 是磁盘上的真东西，落地了就清，没落地就留着让她补
+            if (chatDraftLanded(snapshot)) {
+                removeSnapshot(snapshot.id);
+            }
+        } catch (error) {
+            console.warn(TAG, error);
+        }
+    }, wait);
+}
+
 function recheckDelays() {
     // 测试里可以把这几档压短，真机上永远是上面那组真实间隔
     const custom = globalThis.__ggRecheckDelays;
@@ -814,7 +909,14 @@ function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
     setTimeout(() => {
         try {
             if (chatDraftLanded(snapshot)) {
-                removeSnapshot(snapshot.id);
+                // 同 onGenerationFinished：这里看到的也只是内存里的 ctx.chat，
+                // saveChat 可能还没落盘。留影子 + 宽限窗口，不立刻删。
+                writeShadow(snapshot);
+                snapshot.landedGuess = true;
+                snapshot.endedCleanly = false;
+                snapshot.updatedAt = Date.now();
+                upsertSnapshot(snapshot);
+                scheduleLandedSweep(snapshot);
                 // 确认已经写进聊天了，落盘保护可以撤了，别让她干等
                 settlePostGenerationGuard();
                 return;
@@ -835,15 +937,17 @@ function settleFinishedSnapshot(snapshot, reason) {
         removeSnapshot(snapshot.id);
         return;
     }
-    // 正常收尾的：草稿留作备份（面板里能自己复制），一声不响
+    // 复核几轮都没在 ctx.chat 里找到 → 这段字现在只存在于草稿里。
+    // 以前这里「正常收尾」只留一句 info 就收工，理由是「早就写进聊天了」；
+    // 但生成显示完了、saveChat 却卡住没回来时，这个假设会让她刷新后两头空。
+    // 所以不管当时是不是正常收尾，都摆出来让她能补回，只是语气分轻重。
     if (snapshot.endedCleanly) {
         if (!settings().quiet) {
-            toast(`回复已完整写进聊天，草稿留作备份（${text.length} 字）`, 'info');
+            toast(`回复显示写完了，但聊天记录里还没有 —— 已留住 ${text.length} 字草稿`, 'warning');
         }
-        return;
+    } else {
+        toast(`生成被中断，已保住 ${text.length} 字草稿（刷新后可以接着续写）`, 'warning');
     }
-    // 真被打断：这时候出声才不算打扰
-    toast(`生成被中断，已保住 ${text.length} 字草稿（刷新后可以接着续写）`, 'warning');
     setTimeout(() => {
         if (!pendingSnapshot) {
             scanForRecoverySafe({ countdown: false });
@@ -2028,6 +2132,20 @@ async function scanForRecovery() {
     for (const snapshot of readAll()) {
         if (snapshot.chatKey === key && chatDraftLanded(snapshot)) {
             removeSnapshot(snapshot.id);
+            clearShadow();
+        }
+    }
+
+    // 影子副本：上一轮「看着已经落地」时删掉草稿前留的那一份。
+    // 这次进页面用的是磁盘上的聊天记录 —— 里面找不到它，说明那一轮其实没存下来，
+    // 拿出来当草稿用；找得到就丢掉。正常情况下它活不过一次启动。
+    const shadow = readShadow();
+    if (shadow) {
+        if (shadow.chatKey !== key || chatDraftLanded(shadow)) {
+            clearShadow();
+        } else {
+            upsertSnapshot({ ...shadow, endedCleanly: false, autoSuppressed: false, id: shadow.id || `shadow-${Date.now()}` });
+            clearShadow();
         }
     }
 
