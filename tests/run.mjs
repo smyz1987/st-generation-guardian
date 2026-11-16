@@ -294,6 +294,8 @@ async function scenarioReloadAndResume() {
     for (const token of ['她抬起头', '她抬起头，', '她抬起头，看着你笑了。', '她抬起头，看着你笑了。\n*“等很久了吧。”*']) {
         await ctx.eventSource.emit(EVENT_TYPES.STREAM_TOKEN_RECEIVED, token);
     }
+    // 字数那行是 200ms 节流的（真机上每秒几十个 token，不节流会把样式重算刷爆）
+    await sleep(260);
     eq('那一条顺便报累计字数', document.getElementById('gg-wand-state').textContent,
         `已保存 ${'她抬起头，看着你笑了。\n*“等很久了吧。”*'.length} 字`);
 
@@ -1733,6 +1735,9 @@ async function scenarioMemoryLandedButDiskLost() {
         autoRestore: true,
         resumePrompt: '继续生成上一轮剧情，衔接上文末尾，不要从头开始。',
     };
+    // 真机上「看着落地」的草稿要隔 10 秒才允许自动补回（防 saveChat 还在路上、补成两条）；
+    // 这里压成 0，等价于「已经隔了很久，确认是真丢」
+    globalThis.__ggAutoRestoreAfterMs = 0;
 
     const chat = makeChat();
     const ctx = createWorld({ chat });
@@ -1763,6 +1768,7 @@ async function scenarioMemoryLandedButDiskLost() {
     ok('补回后不再留同一份草稿', readSnapshots().length === 0, String(readSnapshots().length));
 
     delete extensionSettingsStub['generation-guardian'];
+    delete globalThis.__ggAutoRestoreAfterMs;
     const issues = restoreConsole();
     ok('没有异常日志', issues.filter(([level]) => level === 'error').length === 0, JSON.stringify(issues));
 }

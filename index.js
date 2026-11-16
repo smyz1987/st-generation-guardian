@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.31';
+const VERSION = '1.3.32';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -516,13 +516,19 @@ function removeSnapshot(id) {
  * ------------------------------------------------------------------ */
 
 const SHADOW_KEY = 'genGuardian.shadow.v1';
+/* 影子副本只是「这一轮丢了能不能补回来」的应急出口，不用留满一兆字：
+   它和主草稿同时存在，两条都按 MAX_DRAFT_CHARS 算就是双份配额，手机上很容易写爆。 */
+const SHADOW_MAX_CHARS = 200000;
 
 function writeShadow(snapshot) {
     try {
-        const text = clipDraft(String(snapshot?.text || '')).text;
-        if (!text.trim()) {
+        const raw = String(snapshot?.text || '');
+        if (!raw.trim()) {
             return;
         }
+        const text = raw.length <= SHADOW_MAX_CHARS
+            ? raw
+            : `${raw.slice(0, 2000)}\n\n……（中间过长已省略）……\n\n${raw.slice(-(SHADOW_MAX_CHARS - 2000))}`;
         localStorage.setItem(SHADOW_KEY, JSON.stringify({
             ...snapshot,
             text,
@@ -612,22 +618,57 @@ function releaseGeneration() {
     buffer = null;
     clearStallWatch();
     settlePostGenerationGuard();
-    updateBadge('');
+    updateBadge('', true);
 }
 
 /**
  * 魔杖菜单里的那一条：平时写作「生成守护」，生成中借右侧那行小字报「已保存 N 字」。
  * 菜单收起时它只是一个不占地方的按钮，点开魔法棒才看得到 —— 正好是她要的样子。
  */
-function updateBadge(text) {
+/**
+ * 魔法棒入口右侧那行「已保存 N 字」。
+ * 流式时每个 token 都会刷新一次，一秒几十次，每次都写 textContent + classList + style.display ——
+ * 手机上是实打实的样式重算。压到 200ms 一次，结束那一刻强制立即清空。
+ */
+let badgeTimer = null;
+let badgePending = '';
+let badgeDisplayCache = null;
+
+function paintBadge(text) {
     const item = el('gg-wand-entry');
     const state = el('gg-wand-state');
     if (!item || !state) {
         return;
     }
-    item.style.display = settings().showBadge ? '' : 'none';
-    state.textContent = text || '';
-    item.classList.toggle('gg-wand-live', Boolean(text));
+    const want = settings().showBadge ? '' : 'none';
+    if (want !== badgeDisplayCache) {
+        item.style.display = want;
+        badgeDisplayCache = want;
+    }
+    const value = text || '';
+    if (state.textContent !== value) {
+        state.textContent = value;
+    }
+    item.classList.toggle('gg-wand-live', Boolean(value));
+}
+
+function updateBadge(text, immediate = false) {
+    if (immediate) {
+        if (badgeTimer) {
+            clearTimeout(badgeTimer);
+            badgeTimer = null;
+        }
+        paintBadge(text);
+        return;
+    }
+    badgePending = text || '';
+    if (badgeTimer) {
+        return;
+    }
+    badgeTimer = setTimeout(() => {
+        badgeTimer = null;
+        paintBadge(badgePending);
+    }, 200);
 }
 
 let pendingSnapshot = null;
@@ -801,6 +842,8 @@ function flushNow() {
     lastSavedText = text;
     buffer.updatedAt = Date.now();
     upsertSnapshot({ ...buffer });
+    // 落盘这一下本来就要走一遍主线程，顺手把字数直接刷出去，省得等下一次节流
+    paintBadge(badgePending);
 }
 
 function onGenerationFinished(reason) {
@@ -810,7 +853,7 @@ function onGenerationFinished(reason) {
     // 但酒馆要等随后的 saveChat 才写盘。这段窗口刷新就是整段蒸发，绝不能放开。
     // 什么时候放开由 holdPostGenerationGuard / settlePostGenerationGuard 决定。
     clearStallWatch();
-    updateBadge('');
+    updateBadge('', true);
     if (flushTimer) {
         clearTimeout(flushTimer);
         flushTimer = null;
@@ -843,7 +886,7 @@ function onGenerationFinished(reason) {
         snapshot.endedCleanly = false;
         snapshot.updatedAt = Date.now();
         upsertSnapshot(snapshot);
-        scheduleLandedSweep(snapshot);
+        scheduleLandedSweep();
         settlePostGenerationGuard();
         return;
     }
@@ -877,21 +920,48 @@ function landedSweepMs() {
     return Number.isFinite(custom) && custom >= 0 ? custom : LANDED_SWEEP_MS;
 }
 
-function scheduleLandedSweep(snapshot) {
-    const wait = landedSweepMs();
-    setTimeout(() => {
+/* 「看着已经落地」的草稿，隔多久才算「真的没存下来」而不是「saveChat 还在路上」 */
+const AUTO_RESTORE_AFTER_MS = 10000;
+
+function autoRestoreAfterMs() {
+    const custom = Number(globalThis.__ggAutoRestoreAfterMs);
+    return Number.isFinite(custom) && custom >= 0 ? custom : AUTO_RESTORE_AFTER_MS;
+}
+
+/**
+ * 宽限到点后的一次清扫。
+ * 只挂一个定时器：连着生成好几轮时，不该堆出好几个「3 分钟后各 parse 一遍整个存储」
+ * 的回调 —— 那几下一起来，手机上就是一次明显的主线程停顿。
+ */
+let landedSweepTimer = null;
+
+function scheduleLandedSweep() {
+    if (landedSweepTimer) {
+        return;
+    }
+    landedSweepTimer = setTimeout(() => {
+        landedSweepTimer = null;
         try {
-            if (!readAll().some((item) => item.id === snapshot.id)) {
-                return;
-            }
-            // 又要进页面了：这时 ctx.chat 是磁盘上的真东西，落地了就清，没落地就留着让她补
-            if (chatDraftLanded(snapshot)) {
-                removeSnapshot(snapshot.id);
+            const key = currentChatKey();
+            const list = readAll();
+            // 只动「当时看着落地了、就在这场聊天里、现在磁盘上也确实有」的
+            const dropped = list.filter((item) => item.landedGuess
+                && item.chatKey === key
+                && chatDraftLanded(item));
+            if (dropped.length) {
+                writeAll(list.filter((item) => !dropped.includes(item)));
+                liveList = null;
+                // 影子副本只在该删掉的那条就是它时才清：这中间如果她已经开始下一轮，
+                // 影子已经是新的那份了，不能连带清掉
+                const shadowNow = readShadow();
+                if (!shadowNow || dropped.some((item) => item.id === shadowNow.id)) {
+                    clearShadow();
+                }
             }
         } catch (error) {
             console.warn(TAG, error);
         }
-    }, wait);
+    }, landedSweepMs());
 }
 
 function recheckDelays() {
@@ -908,6 +978,11 @@ function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
     }
     setTimeout(() => {
         try {
+            // 她切走了：这里 ctx.chat 换成别的聊天，chatDraftLanded 一定为假，
+            // 继续往下复核会一路误判到「没落地」。停手，留着草稿等下次进页面判。
+            if (!sameLiveChat(snapshot)) {
+                return;
+            }
             if (chatDraftLanded(snapshot)) {
                 // 同 onGenerationFinished：这里看到的也只是内存里的 ctx.chat，
                 // saveChat 可能还没落盘。留影子 + 宽限窗口，不立刻删。
@@ -916,7 +991,7 @@ function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
                 snapshot.endedCleanly = false;
                 snapshot.updatedAt = Date.now();
                 upsertSnapshot(snapshot);
-                scheduleLandedSweep(snapshot);
+                scheduleLandedSweep();
                 // 确认已经写进聊天了，落盘保护可以撤了，别让她干等
                 settlePostGenerationGuard();
                 return;
@@ -928,8 +1003,22 @@ function scheduleLandedRecheck(snapshot, reason, attempt = 0) {
     }, wait);
 }
 
+/** 现在还停在当初那场聊天上吗。她切走了就别拿别的聊天的 ctx.chat 来判结果 */
+function sameLiveChat(snapshot) {
+    try {
+        return String(snapshot?.chatKey || '') === currentChatKey();
+    } catch {
+        return false;
+    }
+}
+
 function settleFinishedSnapshot(snapshot, reason) {
     if (!readAll().some((item) => item.id === snapshot.id)) {
+        return;
+    }
+    // 复核途中她切到别的聊天了：这里看到的是另一个聊天的 ctx.chat，
+    // 判定必然为「没落地」，弹卡片就是纯误报。静默留着，等她切回来 / 下次进页面再判。
+    if (!sameLiveChat(snapshot)) {
         return;
     }
     const text = String(snapshot.text || '');
@@ -1495,7 +1584,13 @@ function ensureModal() {
 }
 
 function openPanelModal(retry = 0) {
-    closeWandMenu();
+    // 魔杖菜单是酒馆自己的浮层，关它时别家扩展可能也在监听；
+    // 万一那里抛错，不能连带把「打开面板」也一起中断 —— 手机上就表现为点了没反应。
+    try {
+        closeWandMenu();
+    } catch (error) {
+        console.warn(TAG, 'close wand menu failed', error);
+    }
     const modal = ensureModal();
     let root = el('gg-settings');
     if (!root) {
@@ -2128,12 +2223,27 @@ async function scanForRecovery() {
         ensureUI();
         const key = currentChatKey();
 
-    // 已经完整落进聊天的草稿顺手清掉，别让存储越堆越多
-    for (const snapshot of readAll()) {
-        if (snapshot.chatKey === key && chatDraftLanded(snapshot)) {
-            removeSnapshot(snapshot.id);
-            clearShadow();
+    // 只读一次：每次 readAll 都要把整份存储 JSON.parse 一遍，8 条大草稿就是几十毫秒，
+    // 手机上表现成「进页面那一下黏住」。后面全在这份 list 上算，删完再统一写回一次。
+    let list = readAll();
+
+    // 已经完整落进聊天的草稿顺手清掉，别让存储越堆越多。
+    // 这里必须逐条都判：普通一轮「正常完成」的草稿不会带 landedGuess，
+    // 它的清净就是靠这一步。
+    const landedIds = [];
+    for (const snapshot of list) {
+        if (snapshot.chatKey !== key) {
+            continue;
         }
+        if (chatDraftLanded(snapshot)) {
+            landedIds.push(snapshot.id);
+        }
+    }
+    if (landedIds.length) {
+        list = list.filter((item) => !landedIds.includes(item.id));
+        writeAll(list);
+        liveList = null;
+        clearShadow();
     }
 
     // 影子副本：上一轮「看着已经落地」时删掉草稿前留的那一份。
@@ -2144,14 +2254,22 @@ async function scanForRecovery() {
         if (shadow.chatKey !== key || chatDraftLanded(shadow)) {
             clearShadow();
         } else {
-            upsertSnapshot({ ...shadow, endedCleanly: false, autoSuppressed: false, id: shadow.id || `shadow-${Date.now()}` });
+            const restored = { ...shadow, endedCleanly: false, autoSuppressed: false, id: shadow.id || `shadow-${Date.now()}` };
+            const index = list.findIndex((item) => item.id === restored.id);
+            if (index >= 0) {
+                list[index] = restored;
+            } else {
+                list.push(restored);
+            }
+            writeAll(list);
+            liveList = null;
             clearShadow();
         }
     }
 
     // 正常收尾留下的备份草稿不参与恢复：它对应的那条早就写进聊天了，
     // 再弹「检测到未完成的回复」只会让人莫名其妙。
-    const candidates = readAll().filter((snapshot) => snapshot.chatKey === key
+    const candidates = list.filter((snapshot) => snapshot.chatKey === key
         && !snapshot.endedCleanly
         && matchesAnchor(snapshot));
 
@@ -2164,10 +2282,17 @@ async function scanForRecovery() {
     candidates.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
     const top = candidates[0];
 
-    // 被打断时默认直接把草稿补回聊天，写进聊天记录并保存 ——
-    // 这样刷新回来就跟「这一轮确实生成过」一样，可以接着往下玩。
+    // 「当时看着已经落地了」的草稿先别急着自动补：那种多半是 saveChat 还在路上，
+    // 自动再插一条，等那个请求落下来就变成同一条回复出现两遍。
+    // 隔得够久（页面真死了、请求早该回来了）才认为是真丢，直接补。
+    const landedCoolMs = autoRestoreAfterMs();
+    const landedSettled = !top.landedGuess
+        || (Date.now() - Number(top.updatedAt || 0) >= landedCoolMs);
     // 「换一条」「替我说话」不自动处理：它们只能塞进输入框，会顶掉你正在打的字。
-    const autoEligible = top.type !== 'swipe' && top.type !== 'impersonate' && !top.autoSuppressed;
+    const autoEligible = landedSettled
+        && top.type !== 'swipe'
+        && top.type !== 'impersonate'
+        && !top.autoSuppressed;
     if (settings().enabled && settings().autoRestore && autoEligible && !activelyGenerating() && !resuming) {
         const result = await resumeSnapshot(top, { thenPrompt: false });
         if (result && result.mode === 'append') {
@@ -2985,7 +3110,7 @@ function mountSettings(retry = 0) {
             buffer = null;
             clearStallWatch();
             settlePostGenerationGuard();
-            updateBadge('');
+            updateBadge('', true);
             hidePanel();
         }
         persistSettings();
@@ -3027,7 +3152,7 @@ function mountSettings(retry = 0) {
     });
     el('gg-set-badge').addEventListener('change', (event) => {
         s.showBadge = Boolean(event.target.checked);
-        updateBadge(generating ? `已保存 ${String(buffer?.text || '').length} 字` : '');
+        updateBadge(generating ? `已保存 ${String(buffer?.text || '').length} 字` : '', true);
         persistSettings();
     });
     const bindNumber = (id, key, min, max, fallback, after) => {
