@@ -394,6 +394,32 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 想重看：面板最下面那行版本号右边多了一枚小「?」（`#gg-help`），点它从第 1 步重来。
 - 引导是浮在 `body` 上的一层薄雾 + 一张卡，`z-index` 拉到最高；点遮罩空白处、点 ✕、走完最后一步点「开始用」都能关。手机端卡片贴底、宽度拉满。
 
+### 1.3.28：生成中「自己刷新」，是热重载扩展在生成结束那一刻按下了重启
+
+不是生成守护没开，也不是它拦不住 —— **这一次刷新不该拦，也拦不住，原因在别处。**
+
+**刷新的来源。** 装了 `SillyTavern-Extension-Hot-Reload`（热重载）的话，在扩展页点「更新 / 删除」时，它会把重启排队：
+
+```js
+// 它 index.js:785-807
+if (!isGenerating()) { await performSeamlessRestart(...); return; }   // 没在生成就立刻刷
+restartPending = true;
+eventSource.once(event_types.GENERATION_ENDED, resume);             // 在生成就等结束
+```
+
+所以它**恰恰会在「生成刚结束」那一瞬刷**。而酒馆的顺序是 `saveReply`（`script.js:5532`）先把回复写完，再 `hideStopButton()`（`:5615`）发 `GENERATION_ENDED` —— 内容不会丢，但页面当场变回刚启动的样子，看到的就是「生成被打断了」。它重启用的是 `location.replace()`，不是 `location.reload()`，`beforeunload` 一律不弹确认框，拦不住。
+
+**怎么确认是它。** 它刷新时会在地址栏留一个 `st_hot_restart` 令牌（`lib/core.js`：`RESTART_QUERY_KEY`）。所以从那以后，恢复卡片上会直接写「热重载扩展刷的」—— 是它就不用再猜了。
+
+**那两条 warning 与刷新无关。**
+
+```
+Extension folder "data/default-user/extensions/.cocktail-plus-backups" has no manifest.json and was skipped.
+Extension folder "data/default-user/extensions/Luker" has no manifest.json and was skipped.
+```
+
+这是**启动时**扫扩展目录的日志：没有 `manifest.json` 的文件夹会被跳过、只报一行 warning，不刷新、不影响生成。`.cocktail-plus-backups` 是某个扩展的备份目录，`Luker` 是后复制进来的 —— 想清净就把这两个目录挪出 `extensions` 文件夹，跟「生成中被刷」没有因果关系。
+
 ### 1.3.27：开关只剩空胶囊，是 input 的伪元素不渲染；引导会跳，是定时器在抢位置
 
 两个都是只在手机上露出来的。

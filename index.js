@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.27';
+const VERSION = '1.3.28';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -837,6 +837,25 @@ let unloadGuardArmed = false;
 // 生成刚结束、字还在屏幕上但酒馆还没 saveChat 的那段保护窗口
 let postGenGuardUntil = 0;
 let postGenGuardTimer = null;
+
+/**
+ * 这次进页面，是不是被热重载扩展刷的。
+ *
+ * SillyTavern-Extension-Hot-Reload 重启用的是
+ * `location.replace(buildRestartNavigationUrl(href, token))`，
+ * 会在地址栏留下一个 `st_hot_restart` 令牌（见它的 lib/core.js: RESTART_QUERY_KEY）。
+ * 它在生成中会排队等 `GENERATION_ENDED`，然后当场刷 —— 那一刻酒馆的 saveReply
+ * 已经写完了（script.js 5532 在 5615 emit ENDED 之前），字不会丢，
+ * 但页面瞬间变回刚启动的样子，她看到的就是「莫名其妙，生成被打断了」。
+ * 记下来，下次恢复卡片上直接说清楚是谁刷的。
+ */
+const reloadedByHotReload = (() => {
+    try {
+        return new URLSearchParams(location.search).has('st_hot_restart');
+    } catch {
+        return false;
+    }
+})();
 
 /** 现在刷新会不会丢字：要么正在吐字，要么刚写完、还在往聊天里存 */
 function reloadWouldLoseText() {
@@ -1847,7 +1866,7 @@ function showPanel(snapshot) {
     if (panel.dataset) {
         delete panel.dataset.undo;
     }
-    meta.textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · ${typeLabel(snapshot.type)} · 已保住 ${snapshot.text.length} 字${snapshot.truncated ? '（过长已截断）' : ''}`;
+    meta.textContent = `${snapshot.charName || '当前角色'} · ${fmtTime(snapshot.startedAt)} · ${typeLabel(snapshot.type)} · 已保住 ${snapshot.text.length} 字${snapshot.truncated ? '（过长已截断）' : ''}${reloadedByHotReload ? ' · 热重载扩展刷的' : ''}`;
 
     const head = '……（前面已生成的部分）\n';
     preview.textContent = snapshot.text.length > 1200
@@ -2461,7 +2480,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.27</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.28</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
