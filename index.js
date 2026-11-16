@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.28';
+const VERSION = '1.3.29';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -1042,6 +1042,52 @@ function guardExtensionUpdateClick(event) {
         console.warn(TAG, error);
     }
     toast(`这条${activelyGenerating() ? '正在写' : '刚写完还没存进聊天'}，更新完它不到一秒就会把页面刷掉 —— 等一下再更新（按住 Shift 点可以强制放行）`, 'warning');
+}
+
+/* 扩展管理面板顶栏那两个「更新全部」按钮（Update all / Update enabled）：
+   ST 在 extensions.js:1186 的 updateAction 里第一行就 requiresReload = true，
+   更新完 popup.complete() 关弹窗，收尾的 1324 行立刻 location.reload() ——
+   生成中按下去必然断。它们都在 .extensions_info .extensions_toolbar 里、
+   没有 id，只能靠文字认，所以单独一支，别和上面「更新」弹窗那支混。 */
+const BULK_UPDATE_LABELS = ['update all', 'update enabled', '更新全部', '更新已启用', '立即更新全部'];
+
+function guardBulkUpdateClick(event) {
+    if (!settings().enabled || !settings().blockReload || !reloadWouldLoseText()) {
+        return;
+    }
+    const target = event.target;
+    if (typeof target?.closest !== 'function') {
+        return;
+    }
+    const toolbar = target.closest('.extensions_info .extensions_toolbar');
+    if (!toolbar) {
+        return;
+    }
+    const button = target.closest('button, .menu_button');
+    if (!button || !toolbar.contains(button)) {
+        return;
+    }
+    const label = String(button.textContent || '').trim().toLowerCase();
+    if (!BULK_UPDATE_LABELS.includes(label)) {
+        return;
+    }
+    if (event.shiftKey) {
+        try {
+            flushNow();
+        } catch (error) {
+            console.warn(TAG, error);
+        }
+        toast('已放行这次「更新全部」（草稿已保存，刷新回来会自动补回）', 'info');
+        return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    try {
+        flushNow();
+    } catch (error) {
+        console.warn(TAG, error);
+    }
+    toast(`这条${activelyGenerating() ? '正在写' : '刚写完还没存进聊天'}，更新完关弹窗那一刻就刷新页面 —— 等生成完了再更新（按住 Shift 点可以强制放行）`, 'warning');
 }
 
 /* ------------------------------------------------------------------ *
@@ -2480,7 +2526,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.28</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.29</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
@@ -3050,6 +3096,7 @@ function initOnce() {
     });
     document.addEventListener('click', guardReloadProneClick, true);
     document.addEventListener('click', guardExtensionUpdateClick, true);
+    document.addEventListener('click', guardBulkUpdateClick, true);
 
     ensureUI();
     watchWandMenu();

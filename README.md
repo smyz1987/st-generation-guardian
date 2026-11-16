@@ -394,6 +394,27 @@ git clone https://github.com/smyz1987/st-generation-guardian gen-guardian
 - 想重看：面板最下面那行版本号右边多了一枚小「?」（`#gg-help`），点它从第 1 步重来。
 - 引导是浮在 `body` 上的一层薄雾 + 一张卡，`z-index` 拉到最高；点遮罩空白处、点 ✕、走完最后一步点「开始用」都能关。手机端卡片贴底、宽度拉满。
 
+### 1.3.29：补上「更新全部 / 更新已启用」这两个漏网的刷新源
+
+1.3.28 查刷新源时翻酒馆源码，发现 `requiresReload = true` 一共有 5 处，我只拦了其中 4 类按钮，**扩展管理面板顶栏那两个更新按钮没拦**：
+
+```js
+// extensions.js:1186
+const updateAction = async (force) => {
+    requiresReload = true;              // 第一行就置标记
+    await autoUpdateExtensions(force);  // 一个个更新
+    await popup.complete(…);            // 关弹窗
+};
+// …关弹窗后，收尾的 1324 行
+if (requiresReload) location.reload();
+```
+
+所以生成中按「Update all」或「Update enabled」，等它把几十个扩展挨个更新完、关弹窗那一刻，页面必刷。这两个按钮在 `.extensions_info .extensions_toolbar` 里、**没有 id**，只能按文字认（`Update all` / `Update enabled`），所以单独做了一支拦截，跟「别的扩展更新弹窗里的更新按钮」分开，免得互相误伤。
+
+按住 Shift 点照旧放行（先落盘再让它去刷）。
+
+**顺带把剩下那些刷新源也核了一遍**，都落在两句话里：要你自己按/选（切语言、`/reload-page`、切 Macro 引擎后的 toast）—— 不叫莫名其妙；或者干脆拦不住（别家扩展的 `setTimeout(() => location.reload())`）—— 靠草稿已落盘 + 回来自动补回。
+
 ### 1.3.28：生成中「自己刷新」，是热重载扩展在生成结束那一刻按下了重启
 
 不是生成守护没开，也不是它拦不住 —— **这一次刷新不该拦，也拦不住，原因在别处。**
