@@ -21,7 +21,7 @@ import { extension_settings, getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'generation-guardian';
 const TAG = '[GenerationGuardian]';
-const VERSION = '1.3.29';
+const VERSION = '1.3.30';
 const STORE_KEY = 'genGuardian.snapshots.v1';
 
 const MAX_SNAPSHOTS = 8;
@@ -483,7 +483,7 @@ function upsertSnapshot(snapshot) {
         truncated: clip.truncated || Boolean(snapshot.truncated),
         rawLength: String(snapshot.text || '').length,
     };
-    const list = readAll();
+    const list = (generating && liveList ? liveList.slice() : readAll());
     const index = list.findIndex((item) => item.id === next.id);
     if (index >= 0) {
         list[index] = next;
@@ -491,11 +491,15 @@ function upsertSnapshot(snapshot) {
         list.unshift(next);
     }
     writeAll(list);
+    if (generating) {
+        liveList = list;
+    }
     return next;
 }
 
 function removeSnapshot(id) {
     writeAll(readAll().filter((item) => item.id !== id));
+    liveList = null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -508,6 +512,13 @@ let flushTimer = null;
 let lastFlushAt = 0;
 let lastSavedText = '';
 let stallTimer = null;
+/**
+ * 生成期间的内存快照列表。
+ * 每 300ms 落一次盘，如果每次都 readAll() 把 localStorage 里那几万字 JSON.parse 一遍，
+ * 手机端主线程会被这笔开销拖住 —— 聊天区滑不动、点不下去，正是这个来路。
+ * 生成开始时读一次，之后只在内存里改，写完顺手留在内存里；生成结束 / 有删除操作就丢掉。
+ */
+let liveList = null;
 
 /**
  * 「现在真的在生成吗」。
@@ -597,6 +608,7 @@ function onGenerationStarted(type = 'normal', options = {}, dryRun = false) {
     };
     lastSavedText = '';
     generating = true;
+    liveList = readAll();
     updateBadge('记录中…');
     armUnloadGuard();
     armStallWatch();
@@ -653,6 +665,7 @@ function onStreamToken(text) {
     if (!buffer) {
         buffer = adoptBuffer();
         generating = true;
+        liveList = readAll();
         armUnloadGuard();
     }
     buffer.text = text;
@@ -691,10 +704,18 @@ function adoptBuffer() {
 }
 
 /** 落盘间隔：草稿短的时候写盘很便宜，压到 300ms —— 别的扩展万一下一刻就把页面
-    刷了，也能少丢一点；草稿变大后序列化成本上升，退回 800ms。 */
+    刷了，也能少丢一点。草稿一长，全量 JSON.stringify + setItem 就是主线程上的硬开销，
+    手机上表现为「输出中页面卡住、滑动和点按都顿」—— 所以按长度分档放宽，
+    真要刷新那一刻，beforeunload / pagehide / StallWatch 都会再强制 flush 一次。 */
 function flushInterval() {
     const length = String(buffer?.text || '').length;
-    return length > 20000 ? FLUSH_INTERVAL_MS : Math.min(300, FLUSH_INTERVAL_MS);
+    if (length > 60000) {
+        return 2400;
+    }
+    if (length > 20000) {
+        return 1500;
+    }
+    return Math.min(300, FLUSH_INTERVAL_MS);
 }
 
 function scheduleFlush() {
@@ -725,6 +746,7 @@ function flushNow() {
 
 function onGenerationFinished(reason) {
     generating = false;
+    liveList = null;
     // 这里故意不 disarm：GENERATION_ENDED 是同步 emit 的，那一刻字全在屏幕上，
     // 但酒馆要等随后的 saveChat 才写盘。这段窗口刷新就是整段蒸发，绝不能放开。
     // 什么时候放开由 holdPostGenerationGuard / settlePostGenerationGuard 决定。
@@ -2526,7 +2548,7 @@ const SETTINGS_HTML = `
         </div>
 
         <div class="gg-ver">
-            <span>v<span id="gg-ver">1.3.29</span> · smyz1987 · MIT</span>
+            <span>v<span id="gg-ver">1.3.30</span> · smyz1987 · MIT</span>
             <button type="button" class="gg-help" id="gg-help" title="再看一遍引导" aria-label="再看一遍引导"><i class="fa-solid fa-question"></i></button>
         </div>
     </div>
